@@ -1,12 +1,12 @@
 <?php
 // ============================================
-// CONNECTION FILE - LOCAL SERVER (XAMPP)
+// CONNECTION FILE - HOSTING (NAIRAHHOST)
 // ============================================
 
-$host = 'localhost';
-$user = 'root';
-$password = '';
-$database = 'dala-college';
+$host = 'localhost';                 // Yawanci 'localhost' ne a hosting
+$user = 'dalacoee_dbuser';           // MySQL Username daga DirectAdmin
+$password = 'your_db_password';      // MySQL Password da ka saita
+$database = 'dalacoee_dala';         // MySQL Database Name
 
 $conn = mysqli_connect($host, $user, $password, $database);
 
