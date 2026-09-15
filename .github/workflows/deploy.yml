@@ -1,4 +1,4 @@
-name: Deploy to Nairahost
+name: Deploy to Nairahost (SFTP)
 
 on:
   push:
@@ -13,11 +13,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Deploy via SFTP
+      - name: Upload via SFTP
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.FTP_HOST }}
-          username: ${{ secrets.FTP_USER }}
+          host: 82.38.4.100
+          username: dalacoee
           password: ${{ secrets.FTP_PASSWORD }}
           port: 22
           source: "."
