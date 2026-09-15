@@ -6,17 +6,19 @@ on:
       - main
 
 jobs:
-  ftp-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Upload files
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+      - name: Deploy via SFTP
+        uses: appleboy/scp-action@v0.1.7
         with:
-          server: 82.38.4.100
-          username: dalacoee
+          host: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASSWORD }}
-          server-dir: /domains/dalacoe.edu.ng/public_html/
+          port: 22
+          source: "."
+          target: "/home/dalacoee/domains/dalacoe.edu.ng/public_html"
