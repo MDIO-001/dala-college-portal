@@ -6,87 +6,7 @@ include 'connect.php';
 
 $success = '';
 $error = '';
-$admission_number = '';
 $show_success = false;
-
-// ============================================
-// GET DEPARTMENT CODE (FROM COURSE)
-// ============================================
-function getDepartmentCode($course) {
-    $dept_codes = [
-        'ARB/ISS' => 'ARI', 'ENG/ISS' => 'ENG', 'PED' => 'PED',
-        'HAU/ENG' => 'HAU', 'CSC/ISC' => 'CSC', 'ENG/SOS' => 'SOC',
-        'CSC/BIO' => 'BIO', 'CSC/PHY' => 'PHY', 'ENG/ECO' => 'ECO',
-        'BA_ARABIC' => 'ARI', 'BA_ISLAMIC' => 'ISC',
-        'BED_ENGLISH' => 'ENG', 'BED_HAUSA' => 'HAU',
-        'BED_SOCIAL' => 'SOC', 'BSC_ECONOMICS' => 'ECO',
-        'BSC_CSC' => 'CSC', 'BSC_BIOLOGY' => 'BIO',
-        'BSC_PHYSICS' => 'PHY', 'BSC_ISC' => 'ISC',
-        'TAILORING' => 'TAI', 'AI_TECH' => 'AIT',
-        'SALOON' => 'SAL', 'HENNA' => 'HEN',
-        'FISH_FARMING' => 'FIS', 'POULTRY' => 'POU',
-        'SOAP_MAKING' => 'SOA', 'CATERING' => 'CAT',
-        'BEAD_MAKING' => 'BEA', 'GRAPHIC_DESIGN' => 'GRA'
-    ];
-    return $dept_codes[$course] ?? 'GEN';
-}
-
-// ============================================
-// GET LEVEL BY PROGRAMME
-// ============================================
-function getLevelByProgramme($programme) {
-    if ($programme == 'DEGREE') {
-        return '400 Level';
-    }
-    return 'NCE I';
-}
-
-// ============================================
-// GENERATE ADMISSION NUMBER
-// DLCOE/NCE/26A[School#]/[DEPT][Dept#]
-// ============================================
-function generateAdmissionNumber($programme, $branch_code, $course) {
-    global $conn;
-    $year = date('y');
-    
-    // 1. Branch letter
-    $branch_letter = 'X';
-    if ($branch_code == 'SHINGE') $branch_letter = 'A';
-    elseif ($branch_code == 'SABUWA') $branch_letter = 'B';
-    elseif ($branch_code == 'TUDUN') $branch_letter = 'C';
-    
-    // 2. Department code
-    $dept_code = getDepartmentCode($course);
-    
-    // 3. Total students in school (first number)
-    $total = 1;
-    $total_query = mysqli_query($conn, "SELECT COUNT(*) as total FROM students");
-    if ($total_query) {
-        $row = mysqli_fetch_assoc($total_query);
-        $total = $row['total'] + 1;
-    }
-    $school_number = str_pad($total, 3, '0', STR_PAD_LEFT);
-    
-    // 4. Total students in department (last number)
-    $course_escaped = mysqli_real_escape_string($conn, $course);
-    $dept_total = 1;
-    $dept_query = mysqli_query($conn, "SELECT COUNT(*) as total FROM students 
-                                       WHERE course = '$course_escaped' 
-                                       OR combination = '$course_escaped'");
-    if ($dept_query) {
-        $row = mysqli_fetch_assoc($dept_query);
-        $dept_total = $row['total'] + 1;
-    }
-    $dept_number = str_pad($dept_total, 3, '0', STR_PAD_LEFT);
-    
-    // 5. Prefix
-    $prefix = 'DLCOE/NCE';
-    if ($programme == 'DEGREE') $prefix = 'DLCOE/DEG';
-    elseif ($programme == 'ENTREPRENEURSHIP') $prefix = 'DLCOE/ENT';
-    
-    // 6. Final
-    return $prefix . "/{$year}{$branch_letter}{$school_number}/{$dept_code}{$dept_number}";
-}
 
 // ============================================
 // HANDLE FORM SUBMISSION
@@ -103,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
     $branch = mysqli_real_escape_string($conn, $_POST['branch'] ?? '');
     $password = $_POST['password'] ?? '';
     $confirm_password = $_POST['confirm_password'] ?? '';
+    $scratch_pin = mysqli_real_escape_string($conn, trim($_POST['scratch_pin'] ?? ''));
     
     $errors = [];
     
@@ -113,6 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
     if (empty($branch)) $errors[] = 'Please select a branch.';
     if (empty($password)) $errors[] = 'Password is required.';
     if (empty($confirm_password)) $errors[] = 'Please confirm your password.';
+    if (empty($scratch_pin)) $errors[] = 'Scratch Card PIN is required.';
     
     if (!empty($phone) && !preg_match('/^[0-9]{10,15}$/', $phone)) {
         $errors[] = 'Please enter a valid phone number (10-15 digits).';
@@ -124,6 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
         $errors[] = 'Passwords do not match.';
     }
     
+    // Duba phone
     if (!empty($phone)) {
         $check_phone = mysqli_query($conn, "SELECT id FROM students WHERE phone = '$phone'");
         if (mysqli_num_rows($check_phone) > 0) {
@@ -131,23 +54,49 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
         }
     }
     
+    // ============================================
+    // TABBATAR DA SCRATCH CARD (APPLICATION)
+    // ============================================
+    if (!empty($scratch_pin)) {
+        $card_check = mysqli_query($conn, "SELECT * FROM scratch_cards 
+                                           WHERE (pin = '$scratch_pin' OR card_code = '$scratch_pin') 
+                                           AND card_type = 'application'");
+        
+        if (!$card_check || mysqli_num_rows($card_check) == 0) {
+            $errors[] = '❌ Scratch Card ɗin ba daidai ba ne ko ba na Application ba.';
+        } else {
+            $card = mysqli_fetch_assoc($card_check);
+            if ($card['status'] == 'used') {
+                $errors[] = '❌ An riga an yi amfani da wannan Scratch Card ɗin.';
+            }
+        }
+    }
+    
     if (empty($errors)) {
-        $admission_number = generateAdmissionNumber($programme, $branch, $course);
         $username = strtolower(str_replace(' ', '_', $fullname)) . rand(10, 99);
         $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-        $student_level = getLevelByProgramme($programme);
+        $student_level = 'NCE I'; // Za a sabunta shi idan an Accept
         
+        // ============================================
+        // INSERT STUDENT - BA A BA DA ADMISSION NUMBER BA
+        // ============================================
         $insert = "INSERT INTO students (
-            student_id, reg_no, username, password, fullname, phone, 
-            programme, course, combination, dob, address, gender, branch_code, status, level, created_at
+            username, password, fullname, phone, 
+            programme, course, combination, dob, address, gender, 
+            branch_code, status, level, created_at
         ) VALUES (
-            '$admission_number', '$admission_number', '$username', '$hashed_password', '$fullname', '$phone',
-            '$programme', '$course', '$course', '$dob', '$address', '$gender', '$branch', 'pending', '$student_level', NOW()
+            '$username', '$hashed_password', '$fullname', '$phone',
+            '$programme', '$course', '$course', '$dob', '$address', '$gender', 
+            '$branch', 'pending', '$student_level', NOW()
         )";
         
         if (mysqli_query($conn, $insert)) {
             $new_id = mysqli_insert_id($conn);
             
+            // Sabunta Scratch Card
+            mysqli_query($conn, "UPDATE scratch_cards SET status = 'used', used_by = $new_id, used_at = NOW() WHERE id = {$card['id']}");
+            
+            // Saka a applications table
             $app_insert = "INSERT INTO applications (
                 student_id, fullname, phone, course_applied, programme, branch_code, application_date, status
             ) VALUES (
@@ -159,7 +108,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
             $_SESSION['fullname'] = $fullname;
             $_SESSION['phone'] = $phone;
             $_SESSION['role'] = 'student';
-            $_SESSION['student_id'] = $admission_number;
             $_SESSION['branch_code'] = $branch;
             $_SESSION['course'] = $course;
             $_SESSION['level'] = $student_level;
@@ -167,7 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
             $success = '✅ Application submitted successfully!';
             $show_success = true;
             
-            echo '<meta http-equiv="refresh" content="3;url=student_dashboard.php">';
+            echo '<meta http-equiv="refresh" content="5;url=student_dashboard.php">';
         } else {
             $error = '❌ Error: ' . mysqli_error($conn);
         }
@@ -267,6 +215,43 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 15px;
+        }
+        
+        .scratch-box {
+            background: #fff3e0;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #f57c00;
+            margin-bottom: 20px;
+        }
+        .scratch-box label {
+            display: block;
+            font-weight: 700;
+            color: #e65100;
+            margin-bottom: 8px;
+            font-size: 0.95rem;
+        }
+        .scratch-box input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #ffb74d;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-family: inherit;
+            letter-spacing: 2px;
+            text-align: center;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .scratch-box input:focus {
+            border-color: #f57c00;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(245,124,0,0.15);
+        }
+        .scratch-box .hint {
+            font-size: 0.75rem;
+            color: #e65100;
+            margin-top: 5px;
         }
         
         .btn-submit {
@@ -411,7 +396,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
 
         <div class="info-box">
             <i class="fas fa-info-circle"></i>
-            <strong>Application:</strong> Fill the form below to submit your application.
+            <strong>Application:</strong> Fill the form below and enter your Scratch Card PIN.
         </div>
 
         <?php if ($error): ?>
@@ -428,11 +413,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
                 <p>Your application has been received and is pending review.</p>
                 
                 <div class="highlight">
-                    <p><strong>Admission Number:</strong> <?php echo htmlspecialchars($_SESSION['student_id'] ?? $admission_number); ?></p>
                     <p><strong>Name:</strong> <?php echo htmlspecialchars($_SESSION['fullname'] ?? $fullname); ?></p>
                     <p><strong>Phone:</strong> <?php echo htmlspecialchars($_SESSION['phone'] ?? $phone); ?></p>
                     <p><strong>Branch:</strong> <?php echo htmlspecialchars($_SESSION['branch_code'] ?? $branch); ?></p>
-                    <p><strong>Level:</strong> <?php echo htmlspecialchars($_SESSION['level'] ?? $student_level); ?></p>
                 </div>
                 
                 <p style="color:#6a8f6a; font-size:0.9rem;">
@@ -441,7 +424,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
                 
                 <div class="redirect-timer">
                     <i class="fas fa-spinner fa-spin"></i> 
-                    Redirecting to dashboard in <span id="countdown">3</span> seconds...
+                    Redirecting to dashboard in <span id="countdown">5</span> seconds...
                 </div>
                 
                 <a href="student_dashboard.php" class="btn-dashboard">
@@ -450,7 +433,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
             </div>
             
             <script>
-            var seconds = 3;
+            var seconds = 5;
             var countdown = setInterval(function() {
                 seconds--;
                 document.getElementById('countdown').textContent = seconds;
@@ -464,6 +447,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
 
         <?php if (!$show_success): ?>
         <form method="POST" action="" id="applyForm">
+            
+            <!-- ============================================ -->
+            <!-- SCRATCH CARD -->
+            <!-- ============================================ -->
+            <div class="scratch-box">
+                <label>🎫 Scratch Card PIN <span style="color:#c62828;">*</span></label>
+                <input type="text" name="scratch_pin" placeholder="APL-1001-2001-3100" required maxlength="50" 
+                       value="<?php echo isset($_POST['scratch_pin']) ? htmlspecialchars($_POST['scratch_pin']) : ''; ?>">
+                <div class="hint">Shigar da cikakken Scratch Card ɗinka (misali: APL-1001-2001-3100)</div>
+            </div>
             
             <div class="form-row">
                 <div class="form-group">
@@ -503,7 +496,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
                     <option value="SABUWA" <?php echo (isset($_POST['branch']) && $_POST['branch'] == 'SABUWA') ? 'selected' : ''; ?>>B - Sabuwar Kofa</option>
                     <option value="TUDUN" <?php echo (isset($_POST['branch']) && $_POST['branch'] == 'TUDUN') ? 'selected' : ''; ?>>C - Tudun Yola</option>
                 </select>
-                <div class="hint">Choose your preferred study center branch</div>
             </div>
 
             <div class="form-row">
@@ -534,7 +526,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
                     <label>Create Password <span class="required">*</span></label>
                     <input type="password" name="password" id="password" placeholder="Min 6 characters" required minlength="6" onkeyup="checkPasswordStrength()">
                     <div class="password-strength" id="passwordStrength"></div>
-                    <div class="hint">Password must be at least 6 characters</div>
                 </div>
                 <div class="form-group">
                     <label>Confirm Password <span class="required">*</span></label>
@@ -559,43 +550,34 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
     </footer>
 
     <script>
-    const courses = {
-        NCE: [
-            { value: 'ARB/ISS', text: 'ARB/ISS - Arabic / Islamic Studies' },
-            { value: 'ENG/ISS', text: 'ENG/ISS - English / Islamic Studies' },
-            { value: 'PED', text: 'PED - Primary Education' },
-            { value: 'HAU/ENG', text: 'HAU/ENG - Hausa / English' },
-            { value: 'CSC/ISC', text: 'CSC/ISC - Computer Science / Islamic Studies' },
-            { value: 'ENG/SOS', text: 'ENG/SOS - English / Social Studies' },
-            { value: 'CSC/BIO', text: 'CSC/BIO - Computer Science / Biology' },
-            { value: 'CSC/PHY', text: 'CSC/PHY - Computer Science / Physics' },
-            { value: 'ENG/ECO', text: 'ENG/ECO - English / Economics' }
-        ],
-        DEGREE: [
-            { value: 'BA_ARABIC', text: 'B.A. Arabic' },
-            { value: 'BA_ISLAMIC', text: 'B.A. Islamic Studies' },
-            { value: 'BED_ENGLISH', text: 'B.Ed. English Education' },
-            { value: 'BED_HAUSA', text: 'B.Ed. Hausa Education' },
-            { value: 'BED_SOCIAL', text: 'B.Ed. Social Studies' },
-            { value: 'BSC_ECONOMICS', text: 'B.Sc. Economics Education' },
-            { value: 'BSC_CSC', text: 'B.Sc. Computer Science Education' },
-            { value: 'BSC_BIOLOGY', text: 'B.Sc. Biology Education' },
-            { value: 'BSC_PHYSICS', text: 'B.Sc. Physics Education' },
-            { value: 'BSC_ISC', text: 'B.Sc. Integrated Science Education' }
-        ],
-        ENTREPRENEURSHIP: [
-            { value: 'TAILORING', text: 'Tailoring and Fashion Design' },
-            { value: 'AI_TECH', text: 'Computer / AI Technology' },
-            { value: 'SALOON', text: 'Saloon and Hairdressing' },
-            { value: 'HENNA', text: 'Henna Art and Decoration' },
-            { value: 'FISH_FARMING', text: 'Fish Farming (Kiwon Kifi)' },
-            { value: 'POULTRY', text: 'Poultry Farming (Kiwon Kaji)' },
-            { value: 'SOAP_MAKING', text: 'Soap Making (Hada Sabulu)' },
-            { value: 'CATERING', text: 'Catering and Confectionery' },
-            { value: 'BEAD_MAKING', text: 'Bead Making and Crafts' },
-            { value: 'GRAPHIC_DESIGN', text: 'Graphic Design' }
-        ]
-    };
+   const courses = {
+    NCE: [
+        { value: 'ARB/ISS', text: 'ARB/ISS - Arabic / Islamic Studies' },
+        { value: 'ENG/ISS', text: 'ENG/ISS - English / Islamic Studies' },
+        { value: 'PED', text: 'PED - Primary Education' },
+        { value: 'HAU/ENG', text: 'HAU/ENG - Hausa / English' },
+        { value: 'CSC/ISC', text: 'CSC/ISC - Computer Science / Islamic Studies' },
+        { value: 'ENG/SOS', text: 'ENG/SOS - English / Social Studies' },
+        { value: 'CSC/BIO', text: 'CSC/BIO - Computer Science / Biology' },
+        { value: 'CSC/PHY', text: 'CSC/PHY - Computer Science / Physics' },
+        { value: 'ENG/ECO', text: 'ENG/ECO - English / Economics' }
+    ],
+    DEGREE: [
+        { value: 'PED', text: 'PED - Primary Education' }
+    ],
+    ENTREPRENEURSHIP: [
+        { value: 'TAILORING', text: 'Tailoring and Fashion Design' },
+        { value: 'AI_TECH', text: 'Computer / AI Technology' },
+        { value: 'SALOON', text: 'Saloon and Hairdressing' },
+        { value: 'HENNA', text: 'Henna Art and Decoration' },
+        { value: 'FISH_FARMING', text: 'Fish Farming (Kiwon Kifi)' },
+        { value: 'POULTRY', text: 'Poultry Farming (Kiwon Kaji)' },
+        { value: 'SOAP_MAKING', text: 'Soap Making (Hada Sabulu)' },
+        { value: 'CATERING', text: 'Catering and Confectionery' },
+        { value: 'BEAD_MAKING', text: 'Bead Making and Crafts' },
+        { value: 'GRAPHIC_DESIGN', text: 'Graphic Design' }
+    ]
+};
 
     function updateCourses() {
         var programme = document.getElementById('programme');
@@ -609,15 +591,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
         defaultOption.textContent = '-- Select Course --';
         courseSelect.appendChild(defaultOption);
         
-        if (!selectedProgramme) {
-            var msgOption = document.createElement('option');
-            msgOption.value = '';
-            msgOption.textContent = '-- Select Programme First --';
-            msgOption.disabled = true;
-            msgOption.selected = true;
-            courseSelect.appendChild(msgOption);
-            return;
-        }
+        if (!selectedProgramme) return;
         
         var courseList = courses[selectedProgramme];
         

@@ -1,4 +1,4 @@
-name: Deploy to Nairahost (SFTP)
+name: Deploy to Nairahost
 
 on:
   push:

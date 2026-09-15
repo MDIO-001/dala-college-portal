@@ -583,6 +583,11 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
             <a href="admin_payments.php" style="color: #ffd54f; margin-right: 15px; text-decoration: none; font-weight: 600;">
                 <i class="fas fa-money-bill-wave"></i> Payments
             </a>
+            <a href="admin_scratch_cards.php" class="c-cards">
+    <i class="fas fa-ticket-alt"></i>
+    <strong>Scratch Cards</strong>
+    <small>View & download</small>
+</a>
             <a href="admin_dashboard.php" style="color: #ffd54f; margin-right: 15px; text-decoration: none; font-weight: 600;">
                 <i class="fas fa-home"></i> Dashboard
             </a>

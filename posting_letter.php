@@ -2,7 +2,6 @@
 session_start();
 include 'connect.php';
 
-// Check if student is logged in
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'student') {
     header('Location: login.php');
     exit();
@@ -10,7 +9,6 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'student') {
 
 $student_id = $_SESSION['user_id'];
 
-// Get student data
 $query = "SELECT * FROM students WHERE id = $student_id";
 $result = mysqli_query($conn, $query);
 $student = mysqli_fetch_assoc($result);
@@ -20,7 +18,7 @@ if (!$student) {
     exit();
 }
 
-// Get branch name
+// Branch name
 $branch_names = [
     'SHINGE' => 'Shinge',
     'SABUWA' => 'Sabuwar Kofa',
@@ -29,30 +27,34 @@ $branch_names = [
 $branch_name = $branch_names[$student['branch_code']] ?? $student['branch_code'] ?? 'Kano';
 
 // ============================================
+// AUTO DATE: 14 WEEKS DAGA RANAR DA AKA BUƊE
+// ============================================
+$tp_start_date = date('Y-m-d'); // Yau
+$tp_end_date = date('Y-m-d', strtotime($tp_start_date . ' + 98 days')); // + 14 weeks = 98 days
+
+// ============================================
 // HANDLE FORM SUBMISSION
 // ============================================
 $tp_school = '';
-$tp_start_date = '';
-$tp_end_date = '';
 $form_submitted = false;
 $form_error = '';
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['generate_letter'])) {
     $tp_school = mysqli_real_escape_string($conn, trim($_POST['tp_school']));
-    $tp_start_date = mysqli_real_escape_string($conn, $_POST['tp_start_date']);
-    $tp_end_date = mysqli_real_escape_string($conn, $_POST['tp_end_date']);
     
-    if (empty($tp_school) || empty($tp_start_date) || empty($tp_end_date)) {
-        $form_error = "❌ Please fill in all fields.";
+    if (empty($tp_school)) {
+        $form_error = "❌ Please enter the school name.";
     } else {
-        $form_submitted = true;
+        // Adana ranar buɗewa da ranar ƙarewa a session
         $_SESSION['tp_school'] = $tp_school;
         $_SESSION['tp_start_date'] = $tp_start_date;
         $_SESSION['tp_end_date'] = $tp_end_date;
+        
+        $form_submitted = true;
     }
 }
 
-// Check if already in session
+// Idan an riga an adana a session
 if (!$form_submitted && isset($_SESSION['tp_school'])) {
     $tp_school = $_SESSION['tp_school'];
     $tp_start_date = $_SESSION['tp_start_date'];
@@ -60,7 +62,7 @@ if (!$form_submitted && isset($_SESSION['tp_school'])) {
     $form_submitted = true;
 }
 
-// Reset logic
+// Reset
 if (isset($_GET['reset'])) {
     unset($_SESSION['tp_school']);
     unset($_SESSION['tp_start_date']);
@@ -76,7 +78,7 @@ $current_date = date('d F, Y');
 // Letter number
 $letter_number = 'DCE/TP/' . date('Y') . '/' . str_pad($student['id'], 4, '0', STR_PAD_LEFT);
 
-// Department name mapping
+// Department names
 $dept_names = [
     'ARB/ISS' => 'Arabic & Islamic Studies',
     'ENG/ISS' => 'English & Islamic Studies',
@@ -90,7 +92,6 @@ $dept_names = [
 ];
 $department_name = $dept_names[$student['course']] ?? $student['course'] ?? 'Not Specified';
 
-// Photo path
 $photo_path = 'uploads/students/' . $student['photo'];
 ?>
 <!DOCTYPE html>
@@ -296,35 +297,30 @@ $photo_path = 'uploads/students/' . $student['photo'];
             width: 100%;
         }
         
-        /* ===== SIGNATURE - BABU SUNA ===== */
-        .signature-section {
-            margin-top: 35px;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 50px;
-        }
-        .signature-section .sign-box {
-            text-align: center;
-        }
-        .signature-section .sign-box .line {
-            border-bottom: 2px solid #0d2818;
-            width: 200px;
-            margin: 35px auto 5px;
-        }
-        .signature-section .sign-box .name {
-            font-weight: 700;
-            font-size: 15px;
-        }
-        .signature-section .sign-box .title {
-            font-size: 13px;
-            color: #6a8f6a;
-        }
-        .signature-section .sign-box .sign-only {
-            font-weight: 700;
-            font-size: 15px;
-            margin-top: 5px;
-            color: #0d2818;
-        }
+      .qr-section {
+    text-align: center;
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 2px solid #dce8dc;
+}
+
+.qr-section img {
+    width: 130px;
+    height: 130px;
+    border: 2px solid #0d2818;
+    border-radius: 8px;
+    padding: 5px;
+    background: white;
+}
+
+.qr-section p {
+    font-size: 12px;
+    color: #0d2818;
+    margin-top: 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
         
         .letter-footer {
             margin-top: 30px;
@@ -383,6 +379,16 @@ $photo_path = 'uploads/students/' . $student['photo'];
             border-radius: 8px;
             margin-bottom: 15px;
             border-left: 4px solid #2e7d32;
+        }
+        
+        .date-info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #1976d2;
+            margin-bottom: 15px;
+            font-size: 14px;
+            color: #0d47a1;
         }
         
         .action-buttons {
@@ -476,10 +482,8 @@ $photo_path = 'uploads/students/' . $student['photo'];
 </head>
 <body>
 
-<!-- ===== LETTER CONTAINER ===== -->
 <div class="letter-container" id="printArea">
     
-    <!-- HEADER -->
     <div class="letter-header">
         <div class="header-left">
             <?php if (file_exists('images/dala-logo.png')): ?>
@@ -501,13 +505,11 @@ $photo_path = 'uploads/students/' . $student['photo'];
         </div>
     </div>
 
-    <!-- TITLE -->
     <div class="title-section">
         <h3>TEACHING PRACTICE POSTING LETTER</h3>
         <h4>Office of the Chairman, Teaching Practice Committee</h4>
     </div>
 
-    <!-- STUDENT SECTION -->
     <div class="student-section">
         <div class="photo-box">
             <?php if (!empty($student['photo']) && file_exists($photo_path)): ?>
@@ -548,7 +550,6 @@ $photo_path = 'uploads/students/' . $student['photo'];
         </div>
     </div>
 
-    <!-- RECIPIENT -->
     <div class="recipient">
         <strong>The Principal/Head Teacher,</strong><br>
         <span class="school-name"><?php echo !empty($tp_school) ? htmlspecialchars($tp_school) : '..............................................'; ?></span><br>
@@ -556,7 +557,6 @@ $photo_path = 'uploads/students/' . $student['photo'];
         ..............................................
     </div>
 
-    <!-- BODY -->
     <div class="body-text">
         <p><strong>Dear Sir/Madam,</strong></p>
         
@@ -576,32 +576,23 @@ $photo_path = 'uploads/students/' . $student['photo'];
         
         <p>Your cooperation in this regard is highly appreciated.</p>
         
-        <p style="margin-top:15px;">Yours faithfully,</p>
-    </div>
+        <!-- ============================================ -->
+<!-- QR CODE -->
+<!-- ============================================ -->
+<div class="qr-section">
+    <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=<?php echo urlencode('https://dalacoe.edu.ng/verify.php?reg_no=' . ($student['reg_no'] ?? $student['student_id'])); ?>" alt="QR Code">
+    <p>Scan to Verify</p>
+    <p style="font-size: 11px; color: #666; margin-top: 5px;">
+        <?php echo htmlspecialchars($student['reg_no'] ?? $student['student_id']); ?>
+    </p>
+</div>
 
-    <!-- ===== SIGNATURE - BABU SUNA ===== -->
-    <div class="signature-section">
-        <div class="sign-box">
-            <div class="line"></div>
-            <!-- BABU SUNA - SIGNATURE KAWAI -->
-            <div class="sign-only">Chairman, Teaching Practice Committee</div>
-            <div class="title">Dala College of Education, Kano</div>
-        </div>
-        <div class="sign-box">
-            <div class="line"></div>
-            <div class="name"><?php echo strtoupper(htmlspecialchars($student['fullname'])); ?></div>
-            <div class="title">Student</div>
-        </div>
-    </div>
-
-    <!-- FOOTER -->
     <div class="letter-footer">
         <strong>DALA COLLEGE OF EDUCATION, KANO</strong> — Knowledge, Excellence &amp; Success<br>
         📍 <?php echo htmlspecialchars($branch_name); ?> Study Centre, Kano State, Nigeria
     </div>
 </div>
 
-<!-- ===== FORM (NO PRINT) ===== -->
 <div class="form-container no-print">
     <?php if ($form_error): ?>
         <div class="form-error">❌ <?php echo $form_error; ?></div>
@@ -612,21 +603,16 @@ $photo_path = 'uploads/students/' . $student['photo'];
     
     <h3>📝 Enter Teaching Practice Posting Details</h3>
     
+    <div class="date-info">
+        <i class="fas fa-calendar-alt"></i> <strong>Note:</strong> Ranar fara aiki ita ce <strong>yau (<?php echo date('d/m/Y'); ?>)</strong>, 
+        kuma zai ƙare a <strong><?php echo date('d/m/Y', strtotime('+98 days')); ?></strong> (14 weeks).
+    </div>
+    
     <form method="POST" action="">
         <div class="form-group">
             <label>School Name (Where student is posted)</label>
             <input type="text" name="tp_school" placeholder="Enter school name" required
                    value="<?php echo htmlspecialchars($tp_school); ?>">
-        </div>
-        <div class="form-group">
-            <label>Start Date</label>
-            <input type="date" name="tp_start_date" required
-                   value="<?php echo htmlspecialchars($tp_start_date); ?>">
-        </div>
-        <div class="form-group">
-            <label>End Date</label>
-            <input type="date" name="tp_end_date" required
-                   value="<?php echo htmlspecialchars($tp_end_date); ?>">
         </div>
         
         <div class="action-buttons">

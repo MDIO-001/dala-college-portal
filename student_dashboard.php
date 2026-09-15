@@ -434,13 +434,20 @@ $current_date = date('l, F j, Y');
                     </a>
                     
                     <!-- POSTING LETTER -->
-                    <a href="posting_letter.php" class="action-btn">
-                        <div class="icon"><i class="fas fa-map-marker-alt"></i></div>
-                        <div>
-                            <div class="text">Posting Letter (T.P)</div>
-                            <div class="sub-text">Teaching Practice posting letter</div>
-                        </div>
-                    </a>
+<a href="verify_card.php?type=posting_letter" class="action-btn">
+    <div class="icon"><i class="fas fa-map-marker-alt"></i></div>
+    <div>
+        <div class="text">Posting Letter (T.P)</div>
+        <div class="sub-text">Enter Scratch Card to download</div>
+    </div>
+</a>
+<a href="verify_card.php?type=acceptance_letter" class="action-btn">
+    <i class="fas fa-file-signature"></i>
+    <div>
+        <div class="text">Acceptance Letter</div>
+        <div class="sub-text">Enter Scratch Card to download</div>
+    </div>
+</a>
                     
                     <!-- LOGOUT -->
                     <a href="logout.php" class="action-btn full-width" style="border-color:#ffcdd2;">
