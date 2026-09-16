@@ -22,7 +22,7 @@ if (!$student) {
 }
 
 // ============================================
-// DAITAITA LEVEL DIN STUDENT
+// STUDENT DATA
 // ============================================
 $student_level_raw = $student['level'] ?? 'NCEI';
 $student_level = str_replace(' ', '', $student_level_raw);
@@ -39,7 +39,7 @@ $selected_semester = isset($_GET['semester']) ? mysqli_real_escape_string($conn,
 $academic_year = '2024/2025';
 
 // ============================================
-// GET ALL REGISTERED COURSES FOR THIS LEVEL/SEMESTER
+// GET REGISTERED COURSES FOR SELECTED LEVEL & SEMESTER
 // ============================================
 $reg_query = "SELECT * FROM course_registrations 
               WHERE student_id = $student_id 
@@ -60,39 +60,6 @@ if ($reg_result) {
 }
 
 // ============================================
-// DEBUGGING
-// ============================================
-$debug_mode = isset($_GET['debug']) ? true : false;
-$debug_html = '';
-
-if ($debug_mode) {
-    $debug_html .= "<div class='debug-info'>";
-    $debug_html .= "<strong>🔍 DEBUG INFO:</strong><br><br>";
-    $debug_html .= "Student ID: <strong>$student_id</strong><br>";
-    $debug_html .= "Student Level (raw): <strong>" . htmlspecialchars($student_level_raw) . "</strong><br>";
-    $debug_html .= "Student Level (cleaned): <strong>$student_level</strong><br>";
-    $debug_html .= "Selected Level: <strong>$selected_level</strong><br>";
-    $debug_html .= "Selected Semester: <strong>$selected_semester</strong><br>";
-    $debug_html .= "Academic Year: <strong>$academic_year</strong><br>";
-    $debug_html .= "Combination: <strong>" . htmlspecialchars($student_combination) . "</strong><br>";
-    $debug_html .= "Registered Courses Found: <strong>" . count($registered_courses) . "</strong><br><br>";
-    
-    $debug_query = "SELECT * FROM course_registrations WHERE student_id = $student_id ORDER BY id DESC";
-    $debug_result = mysqli_query($conn, $debug_query);
-    $debug_html .= "<strong>Duk Registrations ɗin da ke akwai:</strong><br>";
-    if ($debug_result && mysqli_num_rows($debug_result) > 0) {
-        $debug_html .= "<table><tr><th>ID</th><th>Course Code</th><th>Level</th><th>Semester</th><th>Academic Year</th><th>Status</th></tr>";
-        while ($d = mysqli_fetch_assoc($debug_result)) {
-            $debug_html .= "<tr><td>{$d['id']}</td><td>{$d['course_code']}</td><td style='background:#fff9c4;'>{$d['level']}</td><td style='background:#fff9c4;'>{$d['semester']}</td><td style='background:#fff9c4;'>{$d['academic_year']}</td><td>{$d['status']}</td></tr>";
-        }
-        $debug_html .= "</table>";
-    } else {
-        $debug_html .= "<span style='color:#c62828;'>❌ Babu registration da aka samu.</span>";
-    }
-    $debug_html .= "</div>";
-}
-
-// ============================================
 // STUDENT PHOTO PATH
 // ============================================
 $photo_path = "uploads/students/default.png";
@@ -104,32 +71,8 @@ if (!empty($student['photo']) && file_exists("uploads/students/" . $student['pho
     $photo_path = "uploads/students/" . $student['reg_no'] . ".png";
 }
 
-// ============================================
-// CHECK IF STUDENT HAS REGISTERED
-// ============================================
-if (empty($registered_courses)) {
-    echo "<!DOCTYPE html><html><head><title>No Registration</title>";
-    echo "<meta charset='UTF-8'>";
-    echo "<style>body{font-family:Arial;padding:40px;text-align:center;background:#f0f4f8;}";
-    echo ".box{max-width:600px;margin:0 auto;background:white;padding:40px;border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,0.1);}";
-    echo "h2{color:#c62828;margin-bottom:15px;}";
-    echo "a{display:inline-block;margin-top:20px;padding:12px 25px;background:#2e7d32;color:white;text-decoration:none;border-radius:8px;font-weight:bold;}";
-    echo ".debug-info{max-width:850px;margin:10px auto;background:#fff3e0;padding:15px;border-radius:8px;border-left:4px solid #ff9800;font-family:monospace;font-size:12px;text-align:left;}";
-    echo ".debug-info table{width:100%;border-collapse:collapse;margin-top:8px;background:white;}";
-    echo ".debug-info th{background:#0d2818;color:white;padding:6px;font-size:11px;}";
-    echo ".debug-info td{padding:5px;border:1px solid #ddd;font-size:11px;}";
-    echo "</style></head><body>";
-    echo "<div class='box'>";
-    echo "<h2>❌ Babu Courses da Aka Yi Register</h2>";
-    echo "<p>Ba a sami courses ɗin da ka yi register don wannan level/semester ba.</p>";
-    echo "<p style='font-size:13px; color:#666; margin-top:10px;'>Level da ake nema: <strong>$selected_level</strong> | Semester: <strong>$selected_semester</strong> | Year: <strong>$academic_year</strong></p>";
-    echo "<a href='course_registration.php'>Register for Courses</a> | ";
-    echo "<a href='?debug=1' style='background:#ff9800;'>🔍 Duba Debug Info</a>";
-    echo "</div>";
-    echo $debug_html;
-    echo "</body></html>";
-    exit();
-}
+$levels = ['NCEI', 'NCEII', 'NCEIII'];
+$semesters = ['First Semester', 'Second Semester'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -146,6 +89,59 @@ if (empty($registered_courses)) {
             padding: 15px;
         }
         
+        /* ============ SELECTION FORM ============ */
+        .selection-form {
+            max-width: 850px;
+            margin: 0 auto 20px auto;
+            background: #e8f5e9;
+            padding: 20px;
+            border-radius: 12px;
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 15px;
+            align-items: end;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .selection-form .form-group label {
+            display: block;
+            font-weight: 700;
+            color: #0d2818;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        .selection-form select {
+            width: 100%;
+            padding: 10px 15px;
+            border: 2px solid #2e7d32;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            background: white;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        .selection-form select:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(46,125,50,0.2);
+        }
+        .selection-form .btn-view {
+            background: #2e7d32;
+            color: white;
+            border: none;
+            padding: 10px 30px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        .selection-form .btn-view:hover {
+            background: #1b5e20;
+            transform: translateY(-2px);
+        }
+        
+        /* ============ CARD CONTAINER ============ */
         .card-container {
             max-width: 850px;
             margin: 0 auto;
@@ -291,11 +287,11 @@ if (empty($registered_courses)) {
             background: #f8faf8;
         }
         .exam-table .sign-col {
-            height: 22px;
+            height: 25px;
             background: #fffef5 !important;
         }
         .exam-table .date-col {
-            height: 22px;
+            height: 25px;
             background: #fffef5 !important;
         }
         .exam-table tr.total-row td {
@@ -327,16 +323,16 @@ if (empty($registered_courses)) {
             border-radius: 3px;
         }
         
-        /* ============ SIGNATURES ============ */
+        /* ============ SIGNATURES (Accountant & Exam Officer) ============ */
         .exam-signature-area {
-            margin-top: 15px;
-            padding-top: 8px;
+            margin-top: 20px;
+            padding-top: 10px;
             border-top: 1px solid #0d2818;
         }
         .exam-signature-area .sign-row {
             display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 15px;
+            grid-template-columns: 1fr 1fr;
+            gap: 60px;
             text-align: center;
         }
         .exam-signature-area .sign-box {
@@ -349,18 +345,18 @@ if (empty($registered_courses)) {
         }
         .exam-signature-area .sign-title {
             font-weight: 800;
-            font-size: 9px;
+            font-size: 10px;
             color: #0d2818;
             text-transform: uppercase;
         }
         .exam-signature-area .sign-date {
             font-size: 8px;
             color: #555;
-            margin-top: 5px;
+            margin-top: 8px;
         }
         .exam-signature-area .sign-date span {
             border-bottom: 1px dotted #000;
-            padding: 0 15px;
+            padding: 0 25px;
         }
         
         /* ============ FOOTER ============ */
@@ -377,10 +373,13 @@ if (empty($registered_courses)) {
         .actions {
             text-align: center;
             margin-top: 20px;
+            max-width: 850px;
+            margin-left: auto;
+            margin-right: auto;
         }
         .btn-print {
             display: inline-block;
-            padding: 10px 25px;
+            padding: 12px 30px;
             background: #2e7d32;
             color: white;
             border: none;
@@ -391,6 +390,7 @@ if (empty($registered_courses)) {
             text-decoration: none;
             margin: 5px;
             transition: all 0.3s ease;
+            font-family: 'Segoe UI', sans-serif;
         }
         .btn-print:hover {
             background: #1b5e20;
@@ -398,7 +398,7 @@ if (empty($registered_courses)) {
         }
         .btn-back {
             display: inline-block;
-            padding: 10px 20px;
+            padding: 12px 25px;
             background: #6a8f6a;
             color: white;
             border: none;
@@ -408,70 +408,49 @@ if (empty($registered_courses)) {
             text-decoration: none;
             margin: 5px;
             transition: all 0.3s ease;
+            font-family: 'Segoe UI', sans-serif;
         }
         .btn-back:hover {
             background: #4a6a4a;
             transform: translateY(-2px);
         }
-        .btn-debug {
-            display: inline-block;
-            padding: 8px 15px;
-            background: #ff9800;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 11px;
-            cursor: pointer;
-            text-decoration: none;
-            margin: 5px;
+        
+        /* ============ NO COURSES MESSAGE ============ */
+        .no-courses {
+            text-align: center;
+            padding: 40px 20px;
+            color: #6a8f6a;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        .no-courses i {
+            font-size: 3rem;
+            display: block;
+            margin-bottom: 10px;
+            color: #dce8dc;
         }
         
-        /* ============ DEBUG INFO ============ */
-        .debug-info {
-            max-width: 850px;
-            margin: 10px auto;
-            background: #fff3e0;
-            padding: 15px;
-            border-radius: 8px;
-            border-left: 4px solid #ff9800;
-            font-family: monospace;
-            font-size: 12px;
-        }
-        .debug-info table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 8px;
-            background: white;
-        }
-        .debug-info th {
-            background: #0d2818;
-            color: white;
-            padding: 6px;
-            font-size: 11px;
-        }
-        .debug-info td {
-            padding: 5px;
-            border: 1px solid #ddd;
-            font-size: 11px;
-        }
-        
-        /* ============ PRINT ============ */
+        /* ============ PRINT - A4 PORTRAIT ============ */
         @media print {
             .no-print { display: none !important; }
-            .debug-info { display: none !important; }
-            body { 
+            html, body { 
                 background: white; 
                 padding: 0; 
                 margin: 0;
+                width: 210mm;
+                height: 297mm;
             }
             .card-container { 
                 box-shadow: none; 
-                padding: 10px 15px; 
+                padding: 8mm 10mm; 
                 border: 1px solid #000;
-                max-width: 100%;
+                width: 210mm;
+                min-height: 280mm;
+                max-width: 210mm;
                 border-radius: 0;
                 page-break-inside: avoid;
                 page-break-after: avoid;
+                margin: 0;
+                box-sizing: border-box;
             }
             .exam-table {
                 page-break-inside: avoid;
@@ -487,190 +466,220 @@ if (empty($registered_courses)) {
                 print-color-adjust: exact;
             }
             @page {
-                size: A4;
-                margin: 8mm;
+                size: A4 portrait;
+                margin: 0;
             }
         }
         
         @media (max-width: 600px) {
+            .selection-form { grid-template-columns: 1fr; }
             .card-container { padding: 12px; }
             .exam-body-info .info-wrapper { flex-direction: column; align-items: center; }
-            .exam-signature-area .sign-row { grid-template-columns: 1fr; }
+            .exam-signature-area .sign-row { grid-template-columns: 1fr; gap: 30px; }
             .exam-table { font-size: 8px; }
         }
     </style>
 </head>
 <body>
 
-<?php echo $debug_html; ?>
-
-<div class="card-container" id="printArea">
-    
-    <!-- ============================================ -->
-    <!-- EXAM HEADER -->
-    <!-- ============================================ -->
-    <div class="exam-header">
-        <div class="exam-logo-left">
-            <img src="images/dala-logo.png" alt="Dala College Logo">
-        </div>
-        <div class="exam-header-text">
-            <div class="exam-college-name">DALA COLLEGE OF EDUCATION, KANO</div>
-            <div class="exam-motto">Knowledge, Excellence &amp; Success</div>
-            <div class="exam-accreditation">✅ Accredited by National Commission for Colleges of Education (NCCE), Abuja</div>
-            <div class="exam-contact">🌐 www.dalacollege.edu.ng | 📧 dalacollegekano@gmail.com</div>
-            <div class="exam-form-title">Examination Attendance Card — <?php echo $academic_year; ?> Academic Session</div>
-        </div>
-    </div>
-
-    <!-- ============================================ -->
-    <!-- STUDENT INFO + PHOTO -->
-    <!-- ============================================ -->
-    <div class="exam-body-info">
-        <div class="info-wrapper">
-            <div class="student-details">
-                <div class="row">
-                    <span class="label">Registration No:</span>
-                    <span class="value"><?php echo htmlspecialchars($student['reg_no'] ?? 'N/A'); ?></span>
-                </div>
-                <div class="row">
-                    <span class="label">Student Name:</span>
-                    <span class="value"><?php echo htmlspecialchars($student['fullname'] ?? 'N/A'); ?></span>
-                </div>
-                <div class="row">
-                    <span class="label">Combination:</span>
-                    <span class="value"><?php echo htmlspecialchars($student_combination); ?></span>
-                </div>
-                <div class="row">
-                    <span class="label">Programme:</span>
-                    <span class="value"><?php echo htmlspecialchars($student['programme'] ?? 'NCE'); ?></span>
-                </div>
-                <div class="row">
-                    <span class="label">Level:</span>
-                    <span class="value"><?php echo htmlspecialchars($selected_level); ?></span>
-                </div>
-                <div class="row">
-                    <span class="label">Semester:</span>
-                    <span class="value"><?php echo htmlspecialchars($selected_semester); ?></span>
-                </div>
-                <div class="row">
-                    <span class="label">Total Units:</span>
-                    <span class="value"><strong><?php echo $total_units; ?> Units</strong></span>
-                </div>
-            </div>
-            <div class="student-photo">
-                <img src="<?php echo $photo_path; ?>" alt="Student Photo" 
-                     onerror="this.src='https://via.placeholder.com/70x85/cccccc/333333?text=PHOTO'">
-            </div>
-        </div>
-    </div>
-
-    <!-- ============================================ -->
-    <!-- EXAM TABLE - DUK COURSES -->
-    <!-- ============================================ -->
-    <table class="exam-table">
-        <thead>
-            <tr>
-                <th style="width:25px;">#</th>
-                <th style="width:75px;">Course Code</th>
-                <th>Course Title</th>
-                <th style="width:40px;">Unit</th>
-                <th style="width:90px;">Date</th>
-                <th style="width:110px;">Invigilator's Signature</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php 
-            $i = 1;
-            foreach ($registered_courses as $course): 
-            ?>
-            <tr>
-                <td style="text-align:center;"><?php echo $i++; ?></td>
-                <td><strong><?php echo htmlspecialchars($course['course_code']); ?></strong></td>
-                <td><?php echo htmlspecialchars($course['course_title']); ?></td>
-                <td style="text-align:center;"><?php echo $course['credits']; ?></td>
-                <td class="date-col"></td>
-                <td class="sign-col"></td>
-            </tr>
+<!-- ============================================ -->
+<!-- SELECTION FORM - Select Level & Semester -->
+<!-- ============================================ -->
+<div class="selection-form no-print">
+    <div class="form-group">
+        <label><i class="fas fa-layer-group"></i> Select Level</label>
+        <select id="levelSelect">
+            <?php foreach ($levels as $lvl): ?>
+                <option value="<?php echo $lvl; ?>" <?php echo ($selected_level == $lvl) ? 'selected' : ''; ?>>
+                    <?php echo $lvl; ?>
+                </option>
             <?php endforeach; ?>
-            
-            <tr class="total-row">
-                <td colspan="3" style="text-align:right; padding:5px;">TOTAL UNITS:</td>
-                <td style="text-align:center; padding:5px;"><?php echo $total_units; ?></td>
-                <td colspan="2"></td>
-            </tr>
-        </tbody>
-    </table>
-
-    <!-- ============================================ -->
-    <!-- WARNING -->
-    <!-- ============================================ -->
-    <div class="warnings">
-        ⚠️ <strong>Important:</strong> This exam card must be presented at the exam hall with a valid ID card.
-        No candidate will be allowed without this card. All courses must be signed by the invigilator.
+        </select>
     </div>
-
-    <!-- ============================================ -->
-    <!-- DECLARATION -->
-    <!-- ============================================ -->
-    <div class="exam-declaration">
-        <strong>DECLARATION:</strong> I hereby declare that I have registered for the above courses and I am qualified to sit for the examinations. I understand that any examination malpractice will lead to disqualification.
+    <div class="form-group">
+        <label><i class="fas fa-calendar-alt"></i> Select Semester</label>
+        <select id="semesterSelect">
+            <?php foreach ($semesters as $sem): ?>
+                <option value="<?php echo $sem; ?>" <?php echo ($selected_semester == $sem) ? 'selected' : ''; ?>>
+                    <?php echo $sem; ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
     </div>
-
-    <!-- ============================================ -->
-    <!-- SIGNATURES -->
-    <!-- ============================================ -->
-    <div class="exam-signature-area">
-        <div class="sign-row">
-            <div class="sign-box">
-                <div class="sign-line"></div>
-                <div class="sign-title">Student's Signature</div>
-                <div class="sign-date">Date: <span></span></div>
-            </div>
-            <div class="sign-box">
-                <div class="sign-line"></div>
-                <div class="sign-title">Exam Officer</div>
-                <div class="sign-date">Date: <span></span></div>
-            </div>
-            <div class="sign-box">
-                <div class="sign-line"></div>
-                <div class="sign-title">Registrar</div>
-                <div class="sign-date">Date: <span></span></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ============================================ -->
-    <!-- FOOTER -->
-    <!-- ============================================ -->
-    <div class="exam-footer">
-        <p>This is a computer-generated document. No signature is required.</p>
-        <p>Dala College of Education, Kano — <?php echo date('Y'); ?></p>
-    </div>
-    
-</div>
-
-<!-- ============================================ -->
-<!-- ACTIONS -->
-<!-- ============================================ -->
-<div class="actions no-print">
-    <a href="student_dashboard.php" class="btn-back">
-        <i class="fas fa-arrow-left"></i> Back to Dashboard
-    </a>
-    <button onclick="window.print()" class="btn-print">
-        <i class="fas fa-print"></i> Print / Download PDF
+    <button type="button" class="btn-view" onclick="viewExamCard()">
+        <i class="fas fa-eye"></i> View Exam Card
     </button>
-    <a href="?debug=1" class="btn-debug">
-        🔍 Debug Info
-    </a>
 </div>
 
 <script>
-    window.onload = function() {
-        if (window.location.search.includes('print=1')) {
-            window.print();
-        }
-    }
+function viewExamCard() {
+    var level = document.getElementById('levelSelect').value;
+    var semester = document.getElementById('semesterSelect').value;
+    window.location.href = 'exam_card.php?level=' + encodeURIComponent(level) + '&semester=' + encodeURIComponent(semester);
+}
 </script>
+
+<?php if (empty($registered_courses)): ?>
+    <!-- ============================================ -->
+    <!-- NO COURSES MESSAGE -->
+    <!-- ============================================ -->
+    <div class="card-container">
+        <div class="no-courses">
+            <i class="fas fa-id-card"></i>
+            <h2 style="color:#c62828; font-family:'Segoe UI',sans-serif; margin-bottom:10px;">❌ No Courses Registered</h2>
+            <p>No courses have been registered for this Level and Semester.</p>
+            <p style="font-size:13px; color:#666; margin-top:10px;">
+                Level: <strong><?php echo htmlspecialchars($selected_level); ?></strong> | 
+                Semester: <strong><?php echo htmlspecialchars($selected_semester); ?></strong> | 
+                Academic Year: <strong><?php echo $academic_year; ?></strong>
+            </p>
+            <a href="course_registration.php" style="display:inline-block; margin-top:20px; padding:12px 25px; background:#2e7d32; color:white; text-decoration:none; border-radius:8px; font-weight:bold; font-family:'Segoe UI',sans-serif;">
+                Register for Courses
+            </a>
+        </div>
+    </div>
+<?php else: ?>
+    <!-- ============================================ -->
+    <!-- EXAM CARD -->
+    <!-- ============================================ -->
+    <div class="card-container" id="printArea">
+        
+        <!-- EXAM HEADER -->
+        <div class="exam-header">
+            <div class="exam-logo-left">
+                <img src="images/dala-logo.png" alt="Dala College Logo">
+            </div>
+            <div class="exam-header-text">
+                <div class="exam-college-name">DALA COLLEGE OF EDUCATION, KANO</div>
+                <div class="exam-motto">Knowledge, Excellence &amp; Success</div>
+                <div class="exam-accreditation">✅ Accredited by National Commission for Colleges of Education (NCCE), Abuja</div>
+                <div class="exam-contact">🌐 www.dalacollege.edu.ng | 📧 dalacollegekano@gmail.com</div>
+                <div class="exam-form-title">Examination Attendance Card — <?php echo $academic_year; ?> Academic Session</div>
+            </div>
+        </div>
+
+        <!-- STUDENT INFO + PHOTO -->
+        <div class="exam-body-info">
+            <div class="info-wrapper">
+                <div class="student-details">
+                    <div class="row">
+                        <span class="label">Registration No:</span>
+                        <span class="value"><?php echo htmlspecialchars($student['reg_no'] ?? 'N/A'); ?></span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Student Name:</span>
+                        <span class="value"><?php echo htmlspecialchars($student['fullname'] ?? 'N/A'); ?></span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Combination:</span>
+                        <span class="value"><?php echo htmlspecialchars($student_combination); ?></span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Programme:</span>
+                        <span class="value"><?php echo htmlspecialchars($student['programme'] ?? 'NCE'); ?></span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Level:</span>
+                        <span class="value"><?php echo htmlspecialchars($selected_level); ?></span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Semester:</span>
+                        <span class="value"><?php echo htmlspecialchars($selected_semester); ?></span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Total Units:</span>
+                        <span class="value"><strong><?php echo $total_units; ?> Units</strong></span>
+                    </div>
+                </div>
+                <div class="student-photo">
+                    <img src="<?php echo $photo_path; ?>" alt="Student Photo" 
+                         onerror="this.src='https://via.placeholder.com/70x85/cccccc/333333?text=PHOTO'">
+                </div>
+            </div>
+        </div>
+
+        <!-- EXAM TABLE -->
+        <table class="exam-table">
+            <thead>
+                <tr>
+                    <th style="width:25px;">#</th>
+                    <th style="width:75px;">Course Code</th>
+                    <th>Course Title</th>
+                    <th style="width:40px;">Unit</th>
+                    <th style="width:85px;">Date</th>
+                    <th style="width:110px;">Invigilator's Signature</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php 
+                $i = 1;
+                foreach ($registered_courses as $course): 
+                ?>
+                <tr>
+                    <td style="text-align:center;"><?php echo $i++; ?></td>
+                    <td><strong><?php echo htmlspecialchars($course['course_code']); ?></strong></td>
+                    <td><?php echo htmlspecialchars($course['course_title']); ?></td>
+                    <td style="text-align:center;"><?php echo $course['credits']; ?></td>
+                    <td class="date-col"></td>
+                    <td class="sign-col"></td>
+                </tr>
+                <?php endforeach; ?>
+                
+                <tr class="total-row">
+                    <td colspan="3" style="text-align:right; padding:5px;">TOTAL UNITS:</td>
+                    <td style="text-align:center; padding:5px;"><?php echo $total_units; ?></td>
+                    <td colspan="2"></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- WARNING -->
+        <div class="warnings">
+            ⚠️ <strong>Important:</strong> This exam card must be presented at the exam hall with a valid ID card.
+            No candidate will be allowed without this card. All courses must be signed by the invigilator.
+        </div>
+
+        <!-- DECLARATION -->
+        <div class="exam-declaration">
+            <strong>DECLARATION:</strong> I hereby declare that I have registered for the above courses and I am qualified to sit for the examinations. I understand that any examination malpractice will lead to disqualification.
+        </div>
+
+        <!-- SIGNATURES (Accountant & Exam Officer) -->
+        <div class="exam-signature-area">
+            <div class="sign-row">
+                <div class="sign-box">
+                    <div class="sign-line"></div>
+                    <div class="sign-title">Accountant</div>
+                    <div class="sign-date">Date: <span></span></div>
+                </div>
+                <div class="sign-box">
+                    <div class="sign-line"></div>
+                    <div class="sign-title">Exam Officer</div>
+                    <div class="sign-date">Date: <span></span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- FOOTER -->
+        <div class="exam-footer">
+            <p>This is a computer-generated document. No signature is required.</p>
+            <p>Dala College of Education, Kano — <?php echo date('Y'); ?></p>
+        </div>
+        
+    </div>
+
+    <!-- ============================================ -->
+    <!-- ACTIONS -->
+    <!-- ============================================ -->
+    <div class="actions no-print">
+        <a href="student_dashboard.php" class="btn-back">
+            <i class="fas fa-arrow-left"></i> Back to Dashboard
+        </a>
+        <button onclick="window.print()" class="btn-print">
+            <i class="fas fa-print"></i> Print Exam Card
+        </button>
+    </div>
+<?php endif; ?>
 
 </body>
 </html>

@@ -448,7 +448,9 @@ $current_date = date('l, F j, Y');
         <div class="sub-text">Enter Scratch Card to download</div>
     </div>
 </a>
-                    
+   <a href="view_result.php" class="btn btn-primary">
+    <i class="fas fa-chart-bar"></i> View My Results
+</a>                 
                     <!-- LOGOUT -->
                     <a href="logout.php" class="action-btn full-width" style="border-color:#ffcdd2;">
                         <div class="icon" style="color:#c62828;"><i class="fas fa-sign-out-alt"></i></div>

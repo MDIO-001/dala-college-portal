@@ -48,15 +48,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['register_courses'])) {
     } else {
         $registered = 0;
         $already = 0;
+        $failed = 0;
         
         foreach ($selected_courses as $course_code) {
             $course_code = mysqli_real_escape_string($conn, $course_code);
             
+            // Duba daidai da level, semester, da academic_year
             $check = "SELECT id FROM course_registrations 
                       WHERE student_id = $student_id 
                       AND course_code = '$course_code' 
                       AND semester = '$selected_semester' 
-                      AND academic_year = '$academic_year'";
+                      AND level = '$selected_level' 
+                      AND academic_year = '$academic_year'
+                      AND status != 'dropped'";
             $check_result = mysqli_query($conn, $check);
             
             if ($check_result && mysqli_num_rows($check_result) > 0) {
@@ -64,22 +68,35 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['register_courses'])) {
                 continue;
             }
             
+            // Nemo bayanan course
             $course_query = "SELECT * FROM courses WHERE course_code = '$course_code' LIMIT 1";
             $course_result = mysqli_query($conn, $course_query);
             $course = mysqli_fetch_assoc($course_result);
             
             if ($course) {
+                $credits = intval($course['credits']);
+                $course_title = mysqli_real_escape_string($conn, $course['course_title']);
+                
                 $insert = "INSERT INTO course_registrations (
                     student_id, course_code, course_title, semester, level, 
                     academic_year, credits, branch_code, status, registration_date
                 ) VALUES (
-                    $student_id, '$course_code', '{$course['course_title']}', 
+                    $student_id, '$course_code', '$course_title', 
                     '$selected_semester', '$selected_level', '$academic_year', 
-                    {$course['credits']}, '$student_branch', 'registered', CURDATE()
+                    $credits, '$student_branch', 'registered', CURDATE()
                 )";
                 
-                if (mysqli_query($conn, $insert)) {
-                    $registered++;
+                // Yin amfani da try/catch domin kama kuskuren Duplicate entry
+                try {
+                    if (mysqli_query($conn, $insert)) {
+                        $registered++;
+                    }
+                } catch (mysqli_sql_exception $e) {
+                    if (strpos($e->getMessage(), 'Duplicate entry') !== false) {
+                        $already++;
+                    } else {
+                        $failed++;
+                    }
                 }
             }
         }
@@ -87,14 +104,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['register_courses'])) {
         if ($registered > 0) {
             $success = "✅ $registered course(s) registered successfully!";
             if ($already > 0) {
-                $success .= "<br>⚠️ $already course(s) already registered.";
+                $success .= "<br>⚠️ $already course(s) already registered a wannan level/semester.";
+            }
+            if ($failed > 0) {
+                $success .= "<br>❌ $failed course(s) failed to register.";
             }
         } else {
-            $error = '❌ No new courses were registered.';
+            if ($already > 0) {
+                $error = "⚠️ Duk courses ɗin da ka zaɓa an riga an yi rijista su a wannan level da semester.";
+            } else {
+                $error = '❌ No new courses were registered. Please try again.';
+            }
         }
     }
 }
-
 // ============================================
 // HANDLE DROP COURSE
 // ============================================
@@ -697,16 +720,13 @@ $semesters = ['First Semester', 'Second Semester'];
     <div class="container">
         
         <!-- ============================================ -->
-        <!-- PRINT HEADER - Kamar yadda ka nuna a hoto -->
+        <!-- PRINT HEADER -->
         <!-- ============================================ -->
         <div class="print-header">
-            
-            <!-- LOGO A HAGU -->
             <div class="logo-left">
                 <img src="images/dala-logo.png" alt="Dala College Logo">
             </div>
             
-            <!-- RUBUTUN MAKARANTA A TSAKIYA -->
             <div class="header-text">
                 <div class="college-name">DALA COLLEGE OF EDUCATION, KANO</div>
                 <div class="college-motto">Knowledge, Excellence &amp; Success</div>
@@ -718,15 +738,13 @@ $semesters = ['First Semester', 'Second Semester'];
                 </div>
                 <div class="form-title">Course Registration Form (CRF) — <?php echo $academic_year; ?> Academic Session</div>
             </div>
-            
         </div>
 
         <!-- ============================================ -->
-        <!-- PRINT BODY INFO - Bayanan Dalibi + Hoto -->
+        <!-- PRINT BODY INFO -->
         <!-- ============================================ -->
         <div class="print-body-info">
             <div class="info-wrapper">
-                
                 <div class="student-details">
                     <div class="row">
                         <span class="label">Registration No:</span>
@@ -762,7 +780,6 @@ $semesters = ['First Semester', 'Second Semester'];
                     <img src="<?php echo $photo_path; ?>" alt="Student Photo" 
                          onerror="this.src='https://via.placeholder.com/100x120/cccccc/333333?text=PHOTO'">
                 </div>
-                
             </div>
         </div>
 
@@ -820,13 +837,16 @@ $semesters = ['First Semester', 'Second Semester'];
             </div>
         </div>
 
-        <form method="POST" action="" class="no-print">
+        <form method="POST" action="" class="no-print" id="courseForm">
             <input type="hidden" name="level" value="<?php echo $selected_level; ?>">
             <input type="hidden" name="semester" value="<?php echo $selected_semester; ?>">
             
             <div class="course-list">
                 <?php if ($courses_result && mysqli_num_rows($courses_result) > 0): ?>
-                    <?php while ($course = mysqli_fetch_assoc($courses_result)): 
+                    <?php 
+                    // Muna buƙatar sake gudanar da query ɗin domin mu iya amfani da shi sau biyu
+                    mysqli_data_seek($courses_result, 0);
+                    while ($course = mysqli_fetch_assoc($courses_result)): 
                         $is_registered = in_array($course['course_code'], $registered_courses);
                     ?>
                     <div class="course-item <?php echo $is_registered ? 'registered' : ''; ?>">
@@ -879,6 +899,7 @@ $semesters = ['First Semester', 'Second Semester'];
                     <?php 
                     $i = 1;
                     $total_units = 0;
+                    // Muna buƙatar sake gudanar da query ɗin registered
                     $reg_result = mysqli_query($conn, $registered_query);
                     while ($reg = mysqli_fetch_assoc($reg_result)): 
                         $total_units += $reg['credits'];

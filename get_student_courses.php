@@ -3,7 +3,7 @@ session_start();
 include 'connect.php';
 include 'result_functions.php';
 
-if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'exam_officer'])) {
+if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'Exam Officer', 'Provost'])) {
     echo "<p style='color:red;'>Unauthorized</p>";
     exit();
 }
@@ -19,18 +19,21 @@ if (!$student_id) { echo "<p style='color:red;'>Student not selected.</p>"; exit
 $student = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM students WHERE id = $student_id"));
 if (!$student) { echo "<p style='color:red;'>Student not found.</p>"; exit(); }
 
-// Samo courses
+// ============================================
+// SAMO COURSES - BABU status = 'Compulsory'
+// ============================================
 $courses = [];
 $cq = mysqli_query($conn, "SELECT * FROM courses 
                            WHERE combination = '$combination' 
                            AND level = '$level' 
                            AND semester = '$semester'
-                           AND status = 'Compulsory'
                            ORDER BY FIELD(category, 'EDU', 'GSE', 'PED', 'CSC', 'BIO', 'ISC', 'PHY', 'ENG', 'ECO', 'ARB', 'ISS', 'HAU', 'SOS'), 
                            course_code");
 while ($c = mysqli_fetch_assoc($cq)) $courses[] = $c;
 
-// Samo existing results
+// ============================================
+// SAMO EXISTING RESULTS
+// ============================================
 $existing_results = [];
 $rq = mysqli_query($conn, "SELECT * FROM results 
                            WHERE student_id = $student_id 
@@ -41,11 +44,17 @@ while ($r = mysqli_fetch_assoc($rq)) {
     $existing_results[$r['course_code']] = $r;
 }
 
-// Samo carry overs
+// ============================================
+// SAMO CARRY OVERS
+// ============================================
 $carryovers = [];
-$co_result = getCarryOverCourses($conn, $student_id, $combination);
-while ($co = mysqli_fetch_assoc($co_result)) {
-    $carryovers[] = $co;
+if (function_exists('getCarryOverCourses')) {
+    $co_result = getCarryOverCourses($conn, $student_id, $combination);
+    if ($co_result) {
+        while ($co = mysqli_fetch_assoc($co_result)) {
+            $carryovers[] = $co;
+        }
+    }
 }
 ?>
 
@@ -59,6 +68,24 @@ while ($co = mysqli_fetch_assoc($co_result)) {
         <p style="color:#c62828; font-weight:700; margin-top:10px;">⚠️ Carry Over: <strong><?php echo count($carryovers); ?></strong></p>
     <?php endif; ?>
 </div>
+
+<?php if (count($courses) == 0): ?>
+    <div style="text-align:center; padding:40px; background:#fff3e0; border-radius:10px; border-left:5px solid #f57c00; margin-bottom:20px;">
+        <h3 style="color:#e65100; margin-bottom:10px;">⚠️ No Courses Found</h3>
+        <p style="color:#1a2e1a;">
+            No courses found for this Combination, Level, and Semester.<br>
+            Please check the following:
+        </p>
+        <ul style="text-align:left; max-width:500px; margin:15px auto; color:#1a2e1a;">
+            <li><strong>Combination:</strong> <?php echo htmlspecialchars($combination); ?></li>
+            <li><strong>Level:</strong> <?php echo htmlspecialchars($level); ?></li>
+            <li><strong>Semester:</strong> <?php echo htmlspecialchars($semester); ?></li>
+        </ul>
+        <p style="color:#c62828; font-weight:700;">
+            Make sure the Courses table has entries for this combination, level, and semester.
+        </p>
+    </div>
+<?php endif; ?>
 
 <form method="POST">
     <input type="hidden" name="student_id" value="<?php echo $student_id; ?>">
@@ -82,7 +109,7 @@ while ($co = mysqli_fetch_assoc($co_result)) {
             </thead>
             <tbody>
                 <?php foreach ($carryovers as $c): ?>
-                <tr style="background:#ffebee;">
+                <tr style="background:#ffebee;" data-course="<?php echo htmlspecialchars($c['course_code']); ?>" data-credits="<?php echo $c['credit_units']; ?>">
                     <td><strong><?php echo htmlspecialchars($c['course_code']); ?></strong></td>
                     <td><?php echo htmlspecialchars($c['course_title']); ?></td>
                     <td><?php echo $c['credit_units']; ?></td>
@@ -99,6 +126,7 @@ while ($co = mysqli_fetch_assoc($co_result)) {
     </div>
     <?php endif; ?>
     
+    <?php if (count($courses) > 0): ?>
     <div class="card">
         <h3 style="color:#0d2818; margin-bottom:15px;">📚 Current Semester Courses</h3>
         <table class="result-table">
@@ -139,7 +167,9 @@ while ($co = mysqli_fetch_assoc($co_result)) {
             </tbody>
         </table>
     </div>
+    <?php endif; ?>
     
+    <?php if (count($courses) > 0 || count($carryovers) > 0): ?>
     <!-- TOTAL SUMMARY -->
     <div class="total-summary">
         <div class="summary-box">
@@ -159,6 +189,7 @@ while ($co = mysqli_fetch_assoc($co_result)) {
     <button type="submit" name="save_single" class="btn btn-green" style="font-size:1rem; padding:14px 40px; margin-top:15px;">
         <i class="fas fa-save"></i> Save All Results
     </button>
+    <?php endif; ?>
 </form>
 
 <script>
@@ -216,6 +247,7 @@ document.addEventListener('DOMContentLoaded', function() {
 .student-info-box p { color:#1a2e1a; margin:5px 0; font-size:0.9rem; }
 .carryover-box { background:#ffebee; padding:20px; border-radius:10px; margin-bottom:20px; border-left:5px solid #c62828; }
 .carryover-box h3 { color:#c62828; margin-bottom:15px; }
+.card { background:white; padding:25px; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,0.05); margin-bottom:20px; }
 .result-table { width:100%; border-collapse:collapse; margin-bottom:15px; }
 .result-table th { background:#0d2818; color:white; padding:10px; text-align:left; font-size:0.8rem; }
 .result-table td { padding:10px; border-bottom:1px solid #eee; font-size:0.9rem; }
