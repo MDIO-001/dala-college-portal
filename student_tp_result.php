@@ -564,10 +564,21 @@ $grade_scale = [
                 <i class="fas fa-arrow-left"></i> Back to Dashboard
             </a>
         <?php endif; ?>
-        <button onclick="window.print()" class="btn btn-print">
-            <i class="fas fa-print"></i> Print T.P Result
-        </button>
+        <button onclick="trackAndPrint('tp_result')" class="btn btn-print">
+    <i class="fas fa-print"></i> Print T.P Result
+</button>
     </div>
+    <script>
+function trackAndPrint(docType) {
+    fetch('log_download.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'student_id=<?php echo $student_id; ?>&document_type=' + docType + '&action_type=print'
+    }).finally(function() {
+        window.print();
+    });
+}
+</script>
 
 </body>
 </html>

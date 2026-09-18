@@ -49,7 +49,7 @@ function getLevelByProgramme($programme) {
     switch ($programme) {
         case 'NCE': return 'NCE I';
         case 'DEGREE':
-        case 'DEG': return '100 LEVEL';
+        case 'DEG': return '400 Level';
         case 'ENTREPRENEURSHIP':
         case 'ENT': return 'ENTREPRENEURSHIP';
         case 'PRE-NCE': return 'PRE-NCE';
@@ -58,12 +58,44 @@ function getLevelByProgramme($programme) {
 }
 
 // ============================================
-// generateAdmissionNumber()
-// TSARI: DLCOE/NCE/26A083/ARI004
+// GENERATE ADMISSION NUMBER
 // ============================================
-function generateAdmissionNumber($programme, $branch_code, $course) {
+// NCE III  = 24
+// NCE II   = 25
+// NCE I    = 26
+// DEGREE 400L = 26 (shekarar da ake ciki)
+// DEGREE 500L = 27 (shekarar da ake ciki + 1)
+// ============================================
+function generateAdmissionNumber($programme, $branch_code, $course, $level = 'NCE I') {
     global $conn;
-    $year = date('y');
+    
+    $current_year = intval(date('y'));
+    $year_prefix = $current_year;
+    
+    $programme_upper = strtoupper(trim($programme));
+    $level_upper = strtoupper(trim($level));
+    
+    if ($programme_upper == 'NCE') {
+        if (strpos($level_upper, 'III') !== false || strpos($level_upper, '3') !== false) {
+            $year_prefix = $current_year - 2;
+        } elseif (strpos($level_upper, 'II') !== false || strpos($level_upper, '2') !== false) {
+            $year_prefix = $current_year - 1;
+        } else {
+            $year_prefix = $current_year;
+        }
+    } elseif ($programme_upper == 'DEGREE' || $programme_upper == 'DEG') {
+        if (strpos($level_upper, '500') !== false) {
+            $year_prefix = $current_year + 1;
+        } elseif (strpos($level_upper, '400') !== false) {
+            $year_prefix = $current_year;
+        } else {
+            $year_prefix = $current_year;
+        }
+    } elseif ($programme_upper == 'ENTREPRENEURSHIP' || $programme_upper == 'ENT') {
+        $year_prefix = $current_year;
+    }
+    
+    $year_prefix = str_pad($year_prefix, 2, '0', STR_PAD_LEFT);
     
     $branch_letter = 'A';
     if ($branch_code == 'SHINGE') $branch_letter = 'A';
@@ -89,11 +121,11 @@ function generateAdmissionNumber($programme, $branch_code, $course) {
     $dept_number = str_pad($dept_count, 3, '0', STR_PAD_LEFT);
     
     $prefix = 'DLCOE';
-    if ($programme == 'NCE') $prefix = 'DLCOE/NCE';
-    elseif ($programme == 'DEGREE') $prefix = 'DLCOE/DEG';
+    if ($programme_upper == 'NCE') $prefix = 'DLCOE/NCE';
+    elseif ($programme_upper == 'DEGREE' || $programme_upper == 'DEG') $prefix = 'DLCOE/DEG';
     else $prefix = 'DLCOE/ENT';
     
-    return $prefix . "/{$year}{$branch_letter}{$total_number}/{$dept_code}{$dept_number}";
+    return $prefix . "/{$year_prefix}{$branch_letter}{$total_number}/{$dept_code}{$dept_number}";
 }
 
 // Fix NULL levels/status
@@ -104,13 +136,15 @@ mysqli_query($conn, "UPDATE students SET status = 'pending' WHERE status IS NULL
 // STATS
 // ============================================
 $total_students = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students"))['c'];
-$total_pending = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE status IN ('pending','active')"))['c'];
-$total_accepted = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE status IN ('approved','graduated')"))['c'];
+$total_pending = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE status = 'pending'"))['c'];
+$total_accepted = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE status IN ('approved','graduated','active')"))['c'];
 $total_rejected = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE status IN ('rejected','inactive')"))['c'];
 $total_staff = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM staff"))['c'];
 $nce1_count = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE level = 'NCE I'"))['c'];
 $nce2_count = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE level = 'NCE II'"))['c'];
 $nce3_count = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE level = 'NCE III'"))['c'];
+$degree_400 = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE level = '400 Level'"))['c'];
+$degree_500 = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE level = '500 Level'"))['c'];
 
 // ============================================
 // GET STUDENTS LIST
@@ -148,7 +182,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && isset($_P
         
         $admission_no = '';
         if ($action == 'approved') {
-            $admission_no = generateAdmissionNumber($programme, $branch_code, $course);
+            $level = getLevelByProgramme($programme);
+            $admission_no = generateAdmissionNumber($programme, $branch_code, $course, $level);
         }
         
         mysqli_query($conn, "UPDATE applications SET status = '$action', notes = '$comment', reviewed_by = '$admin_name (Admin)', reviewed_at = NOW() WHERE id = '$app_id'");
@@ -259,6 +294,50 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_tp_scores'])) {
 }
 
 // ============================================
+// EDIT STUDENT (with name change tracking)
+// ============================================
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['edit_student'])) {
+    $sid = intval($_POST['student_id']);
+    $fullname = mysqli_real_escape_string($conn, trim($_POST['fullname']));
+    $email = mysqli_real_escape_string($conn, trim($_POST['email']));
+    $phone = mysqli_real_escape_string($conn, trim($_POST['phone']));
+    $programme = mysqli_real_escape_string($conn, $_POST['programme']);
+    $course = mysqli_real_escape_string($conn, $_POST['course']);
+    $level = mysqli_real_escape_string($conn, $_POST['level']);
+    $status = mysqli_real_escape_string($conn, $_POST['status']);
+    $branch_code = mysqli_real_escape_string($conn, $_POST['branch_code']);
+    
+    $old_query = mysqli_query($conn, "SELECT fullname FROM students WHERE id = $sid");
+    $old_row = mysqli_fetch_assoc($old_query);
+    $old_name = $old_row['fullname'] ?? '';
+    
+    $update = "UPDATE students SET 
+                fullname = '$fullname', 
+                email = '$email', 
+                phone = '$phone', 
+                programme = '$programme', 
+                course = '$course', 
+                level = '$level', 
+                status = '$status', 
+                branch_code = '$branch_code' 
+               WHERE id = $sid";
+    
+    if (mysqli_query($conn, $update)) {
+        if ($old_name !== $fullname && !empty($old_name)) {
+            $admin_id = intval($_SESSION['user_id']);
+            $old_name_esc = mysqli_real_escape_string($conn, $old_name);
+            $fullname_esc = mysqli_real_escape_string($conn, $fullname);
+            $log_sql = "INSERT INTO name_change_logs (student_id, old_name, new_name, changed_by) 
+                        VALUES ($sid, '$old_name_esc', '$fullname_esc', $admin_id)";
+            mysqli_query($conn, $log_sql);
+        }
+        $edit_success = "✅ Student updated!";
+    } else {
+        $edit_error = "❌ Error: " . mysqli_error($conn);
+    }
+}
+
+// ============================================
 // DOWNLOAD TEMPLATE CSV
 // ============================================
 if (isset($_GET['download_template'])) {
@@ -266,7 +345,8 @@ if (isset($_GET['download_template'])) {
     header('Content-Disposition: attachment; filename="student_import_template.csv"');
     $output = fopen('php://output', 'w');
     fputcsv($output, ['S/N', 'REG NO', 'FULL NAME', 'EMAIL', 'PHONE', 'PROGRAMME', 'DEPARTMENT/COURSE', 'LEVEL', 'STATUS', 'STUDY CENTRE', 'PASSWORD']);
-    fputcsv($output, ['1', 'DLCOE/NCE/24A001/CSC001', 'Amina Ibrahim', 'amina.ibrahim@email.com', '08012345678', 'NCE', 'CSC/ISC', 'NCE I', 'pending', 'SHINGE', 'student123']);
+    fputcsv($output, ['1', 'DLCOE/NCE/26A001/CSC001', 'Amina Ibrahim', 'amina.ibrahim@email.com', '08012345678', 'NCE', 'CSC/ISC', 'NCE I', 'pending', 'SHINGE', 'student123']);
+    fputcsv($output, ['2', 'DLCOE/DEG/26B001/BSC001', 'Musa Ahmed', 'musa.ahmed@email.com', '08087654321', 'DEGREE', 'BSC_CSC', '400 Level', 'pending', 'SABUWA', 'student123']);
     fclose($output);
     exit();
 }
@@ -284,6 +364,38 @@ if (isset($_GET['export_students'])) {
         $sn = 1;
         while ($row = mysqli_fetch_assoc($export_query)) {
             fputcsv($output, [$sn++, $row['reg_no'] ?? $row['student_id'] ?? '', $row['fullname'] ?? '', $row['email'] ?? '', $row['phone'] ?? '', $row['programme'] ?? 'NCE', $row['course'] ?? $row['department'] ?? '', $row['level'] ?? 'NCE I', $row['status'] ?? 'pending', $row['branch_code'] ?? 'SHINGE', 'student123']);
+        }
+    }
+    fclose($output);
+    exit();
+}
+
+// ============================================
+// EXPORT STUDENTS WITH USERNAME + PASSWORD
+// ============================================
+if (isset($_GET['export_students_with_password'])) {
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="students_with_password_' . date('Y-m-d') . '.csv"');
+    $output = fopen('php://output', 'w');
+    fputcsv($output, ['S/N', 'REG NO', 'FULL NAME', 'EMAIL', 'PHONE', 'USERNAME', 'PASSWORD', 'PROGRAMME', 'COURSE', 'LEVEL', 'STATUS', 'STUDY CENTRE']);
+    $export_query = mysqli_query($conn, "SELECT * FROM students ORDER BY id ASC");
+    if ($export_query) {
+        $sn = 1;
+        while ($row = mysqli_fetch_assoc($export_query)) {
+            fputcsv($output, [
+                $sn++,
+                $row['reg_no'] ?? $row['student_id'] ?? '',
+                $row['fullname'] ?? '',
+                $row['email'] ?? '',
+                $row['phone'] ?? '',
+                $row['username'] ?? '',
+                'student123',
+                $row['programme'] ?? 'NCE',
+                $row['course'] ?? '',
+                $row['level'] ?? 'NCE I',
+                $row['status'] ?? 'pending',
+                $row['branch_code'] ?? 'SHINGE'
+            ]);
         }
     }
     fclose($output);
@@ -319,7 +431,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_student'])) {
     }
     
     if (empty($errors)) {
-        if (empty($reg_no)) $reg_no = generateAdmissionNumber($programme, $branch_code, $course);
+        if (empty($reg_no)) $reg_no = generateAdmissionNumber($programme, $branch_code, $course, $level);
         
         $username = generateUsername($fullname);
         $counter = 1;
@@ -441,7 +553,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['import_students'])) {
                     $email = $fn . '.' . $ln . '@student.dalacoe.edu.ng';
                 }
                 if (empty($reg_no)) {
-                    $reg_no = generateAdmissionNumber($programme, $branch_code, $course);
+                    $reg_no = generateAdmissionNumber($programme, $branch_code, $course, $level);
                 }
                 
                 $username = generateUsername($fullname);
@@ -558,6 +670,10 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
         .stat-card.nce2 .number { color: #0d47a1; }
         .stat-card.nce1 { border-left-color: #e65100; }
         .stat-card.nce1 .number { color: #e65100; }
+        .stat-card.degree400 { border-left-color: #6a1b9a; }
+        .stat-card.degree400 .number { color: #6a1b9a; }
+        .stat-card.degree500 { border-left-color: #4527a0; }
+        .stat-card.degree500 .number { color: #4527a0; }
         
         .alert { padding: 12px 15px; border-radius: 8px; font-weight: 600; margin-bottom: 15px; }
         .alert-success { background: #e8f5e9; color: #2e7d32; border-left: 4px solid #2e7d32; }
@@ -610,6 +726,8 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
         .badge-ncei { background: #fff3e0; color: #e65100; }
         .badge-nceii { background: #e3f2fd; color: #0d47a1; }
         .badge-nceiii { background: #e8f5e9; color: #1b5e20; }
+        .badge-400level { background: #f3e5f5; color: #6a1b9a; }
+        .badge-500level { background: #ede7f6; color: #4527a0; }
         
         .status-badge { display:inline-block; padding:4px 14px; border-radius:20px; font-size:0.75rem; font-weight:600; }
         .status-badge.pending { background:#fff8e1; color:#ffa000; }
@@ -716,6 +834,14 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
             <div class="number"><?php echo $nce1_count; ?></div>
             <div class="label">📗 NCE I</div>
         </div>
+        <div class="stat-card degree400">
+            <div class="number"><?php echo $degree_400; ?></div>
+            <div class="label">🎓 400 Level</div>
+        </div>
+        <div class="stat-card degree500">
+            <div class="number"><?php echo $degree_500; ?></div>
+            <div class="label">🎓 500 Level</div>
+        </div>
         <div class="stat-card">
             <div class="number"><?php echo $total_staff; ?></div>
             <div class="label">👥 Total Staff</div>
@@ -725,6 +851,186 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
     <?php if ($success): ?>
         <div class="alert alert-success"><i class="fas fa-check-circle"></i> <?php echo $success; ?></div>
     <?php endif; ?>
+    <?php if (isset($edit_success)): ?>
+        <div class="alert alert-success"><?php echo $edit_success; ?></div>
+    <?php endif; ?>
+
+    <!-- ============================================ -->
+    <!-- SEARCH STUDENT -->
+    <!-- ============================================ -->
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="fas fa-search" style="color:#1976d2;"></i> Search Student</h2>
+            <span style="color:#6a8f6a; font-size:0.9rem;">Nemo ɗalibi da sauri</span>
+        </div>
+        
+        <form method="GET" action="" style="background:#e3f2fd; padding:20px; border-radius:12px;">
+            <div class="form-row" style="grid-template-columns: 2fr 1fr 1fr auto;">
+                <div class="form-group">
+                    <label>Search (Name, Reg No, Email, Phone, Username)</label>
+                    <input type="text" name="search" value="<?php echo htmlspecialchars($_GET['search'] ?? ''); ?>" placeholder="Rubuta suna, reg no, email...">
+                </div>
+                <div class="form-group">
+                    <label>Level</label>
+                    <select name="search_level">
+                        <option value="">-- All --</option>
+                        <option value="NCE I" <?php echo (isset($_GET['search_level']) && $_GET['search_level'] == 'NCE I') ? 'selected' : ''; ?>>NCE I</option>
+                        <option value="NCE II" <?php echo (isset($_GET['search_level']) && $_GET['search_level'] == 'NCE II') ? 'selected' : ''; ?>>NCE II</option>
+                        <option value="NCE III" <?php echo (isset($_GET['search_level']) && $_GET['search_level'] == 'NCE III') ? 'selected' : ''; ?>>NCE III</option>
+                        <option value="400 Level" <?php echo (isset($_GET['search_level']) && $_GET['search_level'] == '400 Level') ? 'selected' : ''; ?>>400 Level</option>
+                        <option value="500 Level" <?php echo (isset($_GET['search_level']) && $_GET['search_level'] == '500 Level') ? 'selected' : ''; ?>>500 Level</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <select name="search_status">
+                        <option value="">-- All --</option>
+                        <option value="active" <?php echo (isset($_GET['search_status']) && $_GET['search_status'] == 'active') ? 'selected' : ''; ?>>Active</option>
+                        <option value="pending" <?php echo (isset($_GET['search_status']) && $_GET['search_status'] == 'pending') ? 'selected' : ''; ?>>Pending</option>
+                        <option value="approved" <?php echo (isset($_GET['search_status']) && $_GET['search_status'] == 'approved') ? 'selected' : ''; ?>>Approved</option>
+                        <option value="rejected" <?php echo (isset($_GET['search_status']) && $_GET['search_status'] == 'rejected') ? 'selected' : ''; ?>>Rejected</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>&nbsp;</label>
+                    <button type="submit" class="btn btn-blue" style="width:100%;">
+                        <i class="fas fa-search"></i> Search
+                    </button>
+                </div>
+            </div>
+        </form>
+        
+        <?php
+        if (isset($_GET['search']) || isset($_GET['search_level']) || isset($_GET['search_status'])) {
+            $search = mysqli_real_escape_string($conn, trim($_GET['search'] ?? ''));
+            $s_level = mysqli_real_escape_string($conn, $_GET['search_level'] ?? '');
+            $s_status = mysqli_real_escape_string($conn, $_GET['search_status'] ?? '');
+            
+            $where = [];
+            if (!empty($search)) {
+                $where[] = "(fullname LIKE '%$search%' OR reg_no LIKE '%$search%' OR email LIKE '%$search%' OR phone LIKE '%$search%' OR username LIKE '%$search%' OR student_id LIKE '%$search%')";
+            }
+            if (!empty($s_level)) $where[] = "level = '$s_level'";
+            if (!empty($s_status)) $where[] = "status = '$s_status'";
+            
+            $where_sql = !empty($where) ? "WHERE " . implode(' AND ', $where) : "";
+            
+            $search_query = mysqli_query($conn, "SELECT * FROM students $where_sql ORDER BY id DESC LIMIT 50");
+            $search_count = mysqli_num_rows($search_query);
+        ?>
+            <div style="margin-top:20px;">
+                <h3 style="margin-bottom:10px; color:#0d2818;">Search Results (<?php echo $search_count; ?>)</h3>
+                <?php if ($search_count > 0): ?>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Reg No</th>
+                                <th>Full Name</th>
+                                <th>Username</th>
+                                <th>Email</th>
+                                <th>Phone</th>
+                                <th>Course</th>
+                                <th>Level</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php while ($row = mysqli_fetch_assoc($search_query)): ?>
+                            <tr>
+                                <td><?php echo $row['id']; ?></td>
+                                <td><?php echo htmlspecialchars($row['reg_no'] ?? $row['student_id'] ?? '-'); ?></td>
+                                <td><strong><?php echo htmlspecialchars($row['fullname']); ?></strong></td>
+                                <td><?php echo htmlspecialchars($row['username'] ?? '-'); ?></td>
+                                <td><?php echo htmlspecialchars($row['email'] ?? '-'); ?></td>
+                                <td><?php echo htmlspecialchars($row['phone'] ?? '-'); ?></td>
+                                <td><?php echo htmlspecialchars($row['course'] ?? '-'); ?></td>
+                                <td><span class="badge badge-<?php echo strtolower(str_replace(' ', '', $row['level'] ?? 'ncei')); ?>"><?php echo $row['level'] ?? 'NCE I'; ?></span></td>
+                                <td><span class="badge badge-<?php echo $row['status'] ?? 'pending'; ?>"><?php echo ucfirst($row['status'] ?? 'Pending'); ?></span></td>
+                                <td class="action-btns">
+                                    <a href="#" class="view-btn" onclick="viewFullRecord(<?php echo $row['id']; ?>); return false;" title="View"><i class="fas fa-id-card"></i></a>
+                                    <a href="#" class="edit-btn" onclick="editStudent(<?php echo $row['id']; ?>); return false;" title="Edit"><i class="fas fa-edit"></i></a>
+                                    <a href="#" class="pass-btn" onclick="changeStudentPassword(<?php echo $row['id']; ?>); return false;" title="Password"><i class="fas fa-key"></i></a>
+                                </td>
+                            </tr>
+                            <?php endwhile; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <?php else: ?>
+                    <div style="text-align:center; padding:30px; color:#6a8f6a;">
+                        <i class="fas fa-search" style="font-size:2rem; display:block; margin-bottom:10px;"></i>
+                        <p>Babu ɗalibin da ya dace da bincikenka.</p>
+                    </div>
+                <?php endif; ?>
+            </div>
+        <?php } ?>
+    </div>
+
+    <!-- ============================================ -->
+    <!-- DOWNLOAD STATISTICS -->
+    <!-- ============================================ -->
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="fas fa-chart-pie" style="color:#7b1fa2;"></i> Download Statistics</h2>
+            <span style="color:#6a8f6a; font-size:0.9rem;">Adadin abin da aka download/print</span>
+        </div>
+        
+        <div id="downloadStatsContainer">
+            <p style="text-align:center; padding:20px; color:#6a8f6a;">
+                <i class="fas fa-spinner fa-spin"></i> Loading stats...
+            </p>
+        </div>
+    </div>
+
+    <!-- ============================================ -->
+    <!-- DOWNLOAD STUDENT LIST -->
+    <!-- ============================================ -->
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="fas fa-file-download" style="color:#e65100;"></i> Download Student List</h2>
+            <span style="color:#6a8f6a; font-size:0.9rem;">Zaɓi wanda kake so ka sauke</span>
+        </div>
+        
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:15px; margin-bottom:20px;">
+            
+            <a href="?download_template=1" style="text-decoration:none;">
+                <div style="background:#e3f2fd; border:2px solid #1976d2; border-radius:12px; padding:20px; text-align:center; transition:all 0.3s ease;" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform='translateY(0)'">
+                    <i class="fas fa-file-csv" style="font-size:2.5rem; color:#1976d2; display:block; margin-bottom:10px;"></i>
+                    <strong style="color:#0d2818; display:block; font-size:1rem;">Template (CSV)</strong>
+                    <small style="color:#6a8f6a; font-size:0.75rem;">Samfurin yadda ake shigar da ɗalibai</small>
+                </div>
+            </a>
+            
+            <a href="?export_students=1" style="text-decoration:none;">
+                <div style="background:#e8f5e9; border:2px solid #2e7d32; border-radius:12px; padding:20px; text-align:center; transition:all 0.3s ease;" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform='translateY(0)'">
+                    <i class="fas fa-users" style="font-size:2.5rem; color:#2e7d32; display:block; margin-bottom:10px;"></i>
+                    <strong style="color:#0d2818; display:block; font-size:1rem;">All Students (CSV)</strong>
+                    <small style="color:#6a8f6a; font-size:0.75rem;">Jerin duk ɗalibai</small>
+                </div>
+            </a>
+            
+            <a href="?export_students_with_password=1" style="text-decoration:none;">
+                <div style="background:#fff3e0; border:2px solid #e65100; border-radius:12px; padding:20px; text-align:center; transition:all 0.3s ease;" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform='translateY(0)'">
+                    <i class="fas fa-key" style="font-size:2.5rem; color:#e65100; display:block; margin-bottom:10px;"></i>
+                    <strong style="color:#0d2818; display:block; font-size:1rem;">Students + Username + Password</strong>
+                    <small style="color:#6a8f6a; font-size:0.75rem;">Jerin ɗalibai da username da password</small>
+                </div>
+            </a>
+            
+        </div>
+        
+        <div style="padding:15px; background:#f8faf8; border-left:4px solid #455a64; border-radius:8px; font-size:0.85rem;">
+            <strong style="color:#0d2818;">📋 Abin da ke cikin "Students + Username + Password":</strong><br>
+            <span style="color:#455a64; font-family:monospace; font-size:0.8rem;">
+                S/N, REG NO, FULL NAME, EMAIL, PHONE, <strong style="color:#e65100;">USERNAME</strong>, <strong style="color:#e65100;">PASSWORD</strong>, PROGRAMME, COURSE, LEVEL, STATUS, STUDY CENTRE
+            </span>
+            <br><br>
+            <em style="color:#6a8f6a;">Password ɗin da ake amfani da shi shi ne <strong>student123</strong> (default password).</em>
+        </div>
+    </div>
 
     <!-- APPLICATIONS -->
     <div class="card">
@@ -791,20 +1097,6 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
         <?php endif; ?>
     </div>
 
-    <!-- EXPORT -->
-    <div class="card">
-        <div class="export-section">
-            <div>
-                <h3><i class="fas fa-file-export" style="color:#2e7d32;"></i> Export Students Data</h3>
-                <p>Download all student records in CSV format.</p>
-            </div>
-            <div class="export-buttons">
-                <a href="?download_template=1" class="btn btn-blue"><i class="fas fa-download"></i> Template</a>
-                <a href="?export_students=1" class="btn btn-green"><i class="fas fa-download"></i> All Students</a>
-            </div>
-        </div>
-    </div>
-
     <!-- IMPORT -->
     <div class="card">
         <h2>📂 Import Students (CSV)</h2>
@@ -853,7 +1145,7 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
             </div>
             <div class="form-row">
                 <div class="form-group"><label>Level</label>
-                    <select name="level">
+                    <select name="level" id="levelSelect">
                         <option value="NCE I">NCE I</option>
                         <option value="NCE II">NCE II</option>
                         <option value="NCE III">NCE III</option>
@@ -895,6 +1187,8 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
             <a href="?filter_level=NCE%20III" class="btn btn-green <?php echo ($filter_level == 'NCE III') ? 'active' : ''; ?>" style="background:#1b5e20;">🏆 NCE III</a>
             <a href="?filter_level=NCE%20II" class="btn btn-blue <?php echo ($filter_level == 'NCE II') ? 'active' : ''; ?>">📘 NCE II</a>
             <a href="?filter_level=NCE%20I" class="btn btn-orange <?php echo ($filter_level == 'NCE I') ? 'active' : ''; ?>">📗 NCE I</a>
+            <a href="?filter_level=400%20Level" class="btn btn-purple <?php echo ($filter_level == '400 Level') ? 'active' : ''; ?>">🎓 400 Level</a>
+            <a href="?filter_level=500%20Level" class="btn btn-purple <?php echo ($filter_level == '500 Level') ? 'active' : ''; ?>" style="background:#4527a0;">🎓 500 Level</a>
         </div>
         
         <?php if (isset($pass_success)): ?><div class="alert alert-success"><?php echo $pass_success; ?></div><?php endif; ?>
@@ -985,6 +1279,8 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
                         <option value="NCE I" <?php echo (isset($_GET['level']) && $_GET['level'] == 'NCE I') ? 'selected' : ''; ?>>NCE I</option>
                         <option value="NCE II" <?php echo (isset($_GET['level']) && $_GET['level'] == 'NCE II') ? 'selected' : ''; ?>>NCE II</option>
                         <option value="NCE III" <?php echo (isset($_GET['level']) && $_GET['level'] == 'NCE III') ? 'selected' : ''; ?>>NCE III</option>
+                        <option value="400 Level" <?php echo (isset($_GET['level']) && $_GET['level'] == '400 Level') ? 'selected' : ''; ?>>400 Level</option>
+                        <option value="500 Level" <?php echo (isset($_GET['level']) && $_GET['level'] == '500 Level') ? 'selected' : ''; ?>>500 Level</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -1020,9 +1316,9 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
             
             $score_student_query = "SELECT id, reg_no, fullname, combination, level 
                                     FROM students 
-                                    WHERE combination = '$score_combination' 
-                                    AND REPLACE(level, ' ', '') = REPLACE('$score_level', ' ', '')
-                                    AND status IN ('active', 'approved')
+                                    WHERE REPLACE(UPPER(combination), ' ', '') = REPLACE(UPPER('$score_combination'), ' ', '')
+                                    AND REPLACE(UPPER(level), ' ', '') = REPLACE(UPPER('$score_level'), ' ', '')
+                                    AND status NOT IN ('rejected', 'inactive')
                                     ORDER BY fullname ASC";
             $score_student_result = mysqli_query($conn, $score_student_query);
             $score_students = [];
@@ -1189,6 +1485,8 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
                         <option value="NCE I" <?php echo (isset($_GET['level']) && $_GET['level'] == 'NCE I') ? 'selected' : ''; ?>>NCE I</option>
                         <option value="NCE II" <?php echo (isset($_GET['level']) && $_GET['level'] == 'NCE II') ? 'selected' : ''; ?>>NCE II</option>
                         <option value="NCE III" <?php echo (isset($_GET['level']) && $_GET['level'] == 'NCE III') ? 'selected' : ''; ?>>NCE III</option>
+                        <option value="400 Level" <?php echo (isset($_GET['level']) && $_GET['level'] == '400 Level') ? 'selected' : ''; ?>>400 Level</option>
+                        <option value="500 Level" <?php echo (isset($_GET['level']) && $_GET['level'] == '500 Level') ? 'selected' : ''; ?>>500 Level</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -1214,9 +1512,9 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
             $tp_session = mysqli_real_escape_string($conn, $_GET['session'] ?? '2024/2025');
             
             $tp_students_query = "SELECT id, reg_no, fullname FROM students 
-                                  WHERE combination = '$tp_combination' 
-                                  AND REPLACE(level, ' ', '') = REPLACE('$tp_level', ' ', '')
-                                  AND status IN ('active', 'approved')
+                                  WHERE REPLACE(UPPER(combination), ' ', '') = REPLACE(UPPER('$tp_combination'), ' ', '')
+                                  AND REPLACE(UPPER(level), ' ', '') = REPLACE(UPPER('$tp_level'), ' ', '')
+                                  AND status NOT IN ('rejected', 'inactive')
                                   ORDER BY fullname ASC";
             $tp_students_result = mysqli_query($conn, $tp_students_query);
             $tp_students = [];
@@ -1433,9 +1731,13 @@ window.onclick = function(event) { if (event.target.className === 'modal-overlay
 function updateCourses() {
     var programme = document.getElementById('programme').value;
     var courseSelect = document.getElementById('course');
+    var levelSelect = document.getElementById('levelSelect');
+    
     courseSelect.innerHTML = '<option value="">-- Select Course --</option>';
     
     var courses = [];
+    var levels = ['NCE I', 'NCE II', 'NCE III'];
+    
     if (programme === 'NCE') {
         courses = [
             { value: 'ARB/ISS', text: 'ARB/ISS - Arabic / Islamic Studies' },
@@ -1448,20 +1750,53 @@ function updateCourses() {
             { value: 'CSC/PHY', text: 'CSC/PHY - Computer Science / Physics' },
             { value: 'ENG/ECO', text: 'ENG/ECO - English / Economics' }
         ];
+        levels = ['NCE I', 'NCE II', 'NCE III'];
     } else if (programme === 'DEGREE') {
         courses = [
             { value: 'BA_ARABIC', text: 'B.A. Arabic' },
+            { value: 'BA_ISLAMIC', text: 'B.A. Islamic Studies' },
+            { value: 'BED_ENGLISH', text: 'B.Ed. English' },
+            { value: 'BED_HAUSA', text: 'B.Ed. Hausa' },
+            { value: 'BED_SOCIAL', text: 'B.Ed. Social Studies' },
+            { value: 'BSC_ECONOMICS', text: 'B.Sc. Economics' },
             { value: 'BSC_CSC', text: 'B.Sc. Computer Science Education' },
+            { value: 'BSC_BIOLOGY', text: 'B.Sc. Biology Education' },
             { value: 'BSC_PHYSICS', text: 'B.Sc. Physics Education' },
-            { value: 'BSC_BIOLOGY', text: 'B.Sc. Biology Education' }
+            { value: 'BSC_ISC', text: 'B.Sc. Islamic Studies' }
         ];
+        levels = ['400 Level', '500 Level'];
+    } else if (programme === 'ENTREPRENEURSHIP') {
+        courses = [
+            { value: 'TAILORING', text: 'Tailoring' },
+            { value: 'AI_TECH', text: 'AI & Technology' },
+            { value: 'SALOON', text: 'Salon' },
+            { value: 'HENNA', text: 'Henna' },
+            { value: 'FISH_FARMING', text: 'Fish Farming' },
+            { value: 'POULTRY', text: 'Poultry' },
+            { value: 'SOAP_MAKING', text: 'Soap Making' },
+            { value: 'CATERING', text: 'Catering' },
+            { value: 'BEAD_MAKING', text: 'Bead Making' },
+            { value: 'GRAPHIC_DESIGN', text: 'Graphic Design' }
+        ];
+        levels = ['ENTREPRENEURSHIP'];
     }
+    
     courses.forEach(function(c) {
         var option = document.createElement('option');
         option.value = c.value;
         option.textContent = c.text;
         courseSelect.appendChild(option);
     });
+    
+    if (levelSelect) {
+        levelSelect.innerHTML = '';
+        levels.forEach(function(lvl) {
+            var option = document.createElement('option');
+            option.value = lvl;
+            option.textContent = lvl;
+            levelSelect.appendChild(option);
+        });
+    }
 }
 
 function editStudent(id) {
@@ -1491,6 +1826,8 @@ function editStudent(id) {
                             <option value="NCE I" ${data.level == 'NCE I' ? 'selected' : ''}>NCE I</option>
                             <option value="NCE II" ${data.level == 'NCE II' ? 'selected' : ''}>NCE II</option>
                             <option value="NCE III" ${data.level == 'NCE III' ? 'selected' : ''}>NCE III</option>
+                            <option value="400 Level" ${data.level == '400 Level' ? 'selected' : ''}>400 Level</option>
+                            <option value="500 Level" ${data.level == '500 Level' ? 'selected' : ''}>500 Level</option>
                         </select>
                     </div>
                 </div>
@@ -1622,7 +1959,6 @@ function viewFullRecord(id) {
             
             var html = '';
             
-            // STUDENT HEADER
             html += '<div style="background:#0d2818; color:white; padding:20px; border-radius:12px; margin-bottom:20px;">';
             html += '<h2 style="color:#ffd54f; margin-bottom:10px;">' + s.fullname + '</h2>';
             html += '<p style="font-size:0.9rem; color:#c8e6c9;">';
@@ -1631,7 +1967,6 @@ function viewFullRecord(id) {
             html += 'Email: <strong>' + s.email + '</strong> | Phone: <strong>' + s.phone + '</strong> | Status: <strong>' + s.status.toUpperCase() + '</strong>';
             html += '</p></div>';
             
-            // DOCUMENTS
             html += '<h3 style="color:#0d2818; margin-bottom:15px;"><i class="fas fa-file-alt" style="color:#1976d2;"></i> Documents Status</h3>';
             html += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:25px;">';
             var docList = [
@@ -1648,7 +1983,6 @@ function viewFullRecord(id) {
             });
             html += '</div>';
             
-            // ACADEMIC STATUS
             html += '<h3 style="color:#0d2818; margin-bottom:15px;"><i class="fas fa-chart-bar" style="color:#7b1fa2;"></i> Academic Status</h3>';
             html += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:25px;">';
             html += '<div style="background:#f8faf8; padding:12px 15px; border-radius:8px; border-left:4px solid ' + (exam.has_exam_card ? '#2e7d32' : '#ddd') + ';">';
@@ -1661,7 +1995,6 @@ function viewFullRecord(id) {
             html += '</div>';
             html += '</div>';
             
-            // T.P RESULT
             if (tp_result) {
                 html += '<h3 style="color:#0d2818; margin-bottom:15px;"><i class="fas fa-chalkboard-teacher" style="color:#e65100;"></i> Teaching Practice Result</h3>';
                 html += '<div style="background:#fff3e0; padding:15px; border-radius:10px; border-left:4px solid #e65100; margin-bottom:25px;">';
@@ -1675,7 +2008,6 @@ function viewFullRecord(id) {
                 html += '</div></div>';
             }
             
-            // SCRATCH CARDS
             html += '<h3 style="color:#0d2818; margin-bottom:15px;"><i class="fas fa-ticket-alt" style="color:#f57c00;"></i> Scratch Cards (' + scratch.length + ')</h3>';
             if (scratch.length > 0) {
                 html += '<table style="width:100%; border-collapse:collapse; font-size:0.8rem; margin-bottom:25px;">';
@@ -1692,7 +2024,6 @@ function viewFullRecord(id) {
                 html += '<p style="color:#999; margin-bottom:25px;">No scratch cards found.</p>';
             }
             
-            // SESSIONS
             html += '<h3 style="color:#0d2818; margin-bottom:15px;"><i class="fas fa-calendar-alt" style="color:#1976d2;"></i> Session & Level History</h3>';
             if (sessions.length > 0) {
                 html += '<table style="width:100%; border-collapse:collapse; font-size:0.8rem; margin-bottom:25px;">';
@@ -1708,7 +2039,6 @@ function viewFullRecord(id) {
                 html += '<p style="color:#999; margin-bottom:25px;">No session history found.</p>';
             }
             
-            // REGISTRATIONS
             html += '<h3 style="color:#0d2818; margin-bottom:15px;"><i class="fas fa-book" style="color:#2e7d32;"></i> Course Registrations</h3>';
             if (regs.length > 0) {
                 html += '<table style="width:100%; border-collapse:collapse; font-size:0.8rem; margin-bottom:25px;">';
@@ -1725,7 +2055,6 @@ function viewFullRecord(id) {
                 html += '<p style="color:#999; margin-bottom:25px;">No course registrations found.</p>';
             }
             
-            // TOTAL PRINTED
             html += '<h3 style="color:#0d2818; margin-bottom:15px;"><i class="fas fa-print" style="color:#455a64;"></i> Total Printed Records</h3>';
             html += '<div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin-bottom:25px;">';
             var printItems = [
@@ -1751,6 +2080,80 @@ function viewFullRecord(id) {
             content.innerHTML = '<div class="alert alert-error">❌ Error: ' + error.message + '</div>';
         });
 }
+
+// ============================================
+// LOAD DOWNLOAD STATS
+// ============================================
+function loadDownloadStats() {
+    var container = document.getElementById('downloadStatsContainer');
+    if (!container) return;
+    
+    fetch('get_student_download_stats.php')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                container.innerHTML = '<p style="color:red;">Error loading stats</p>';
+                return;
+            }
+            
+            var html = '';
+            html += '<div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; margin-bottom:20px;">';
+            var colors = ['#1976d2', '#7b1fa2', '#f57c00', '#2e7d32', '#c62828', '#00695c', '#e65100', '#455a64'];
+            var i = 0;
+            for (var key in data.downloads) {
+                var item = data.downloads[key];
+                html += '<div style="background:#f8faf8; padding:15px; border-radius:10px; text-align:center; border-left:4px solid ' + colors[i % colors.length] + ';">';
+                html += '<div style="font-size:1.8rem; font-weight:900; color:' + colors[i % colors.length] + ';">' + item.count + '</div>';
+                html += '<div style="font-size:0.75rem; color:#6a8f6a; font-weight:700; text-transform:uppercase;">' + item.label + '</div>';
+                html += '</div>';
+                i++;
+            }
+            html += '<div style="background:#fff3e0; padding:15px; border-radius:10px; text-align:center; border-left:4px solid #e65100;">';
+            html += '<div style="font-size:1.8rem; font-weight:900; color:#e65100;">' + data.name_changes + '</div>';
+            html += '<div style="font-size:0.75rem; color:#6a8f6a; font-weight:700; text-transform:uppercase;">Name Changes</div>';
+            html += '</div>';
+            html += '</div>';
+            
+            if (data.recent_downloads && data.recent_downloads.length > 0) {
+                html += '<h3 style="margin-bottom:10px; color:#0d2818;"><i class="fas fa-history"></i> Recent Downloads</h3>';
+                html += '<table style="width:100%; border-collapse:collapse; font-size:0.8rem;">';
+                html += '<thead><tr style="background:#0d2818; color:white;"><th style="padding:6px;">Student</th><th style="padding:6px;">Document</th><th style="padding:6px;">Action</th><th style="padding:6px;">Date</th></tr></thead><tbody>';
+                data.recent_downloads.forEach(function(d) {
+                    html += '<tr>';
+                    html += '<td style="padding:5px; border-bottom:1px solid #eee;">' + (d.fullname || 'Unknown') + '<br><small style="color:#999;">' + (d.reg_no || '') + '</small></td>';
+                    html += '<td style="padding:5px; border-bottom:1px solid #eee;">' + d.document_type + '</td>';
+                    html += '<td style="padding:5px; border-bottom:1px solid #eee;">' + d.action_type + '</td>';
+                    html += '<td style="padding:5px; border-bottom:1px solid #eee;">' + d.downloaded_at + '</td>';
+                    html += '</tr>';
+                });
+                html += '</tbody></table>';
+            }
+            
+            if (data.recent_name_changes && data.recent_name_changes.length > 0) {
+                html += '<h3 style="margin-top:20px; margin-bottom:10px; color:#0d2818;"><i class="fas fa-user-edit"></i> Recent Name Changes</h3>';
+                html += '<table style="width:100%; border-collapse:collapse; font-size:0.8rem;">';
+                html += '<thead><tr style="background:#e65100; color:white;"><th style="padding:6px;">Reg No</th><th style="padding:6px;">Old Name</th><th style="padding:6px;">New Name</th><th style="padding:6px;">Date</th></tr></thead><tbody>';
+                data.recent_name_changes.forEach(function(nc) {
+                    html += '<tr>';
+                    html += '<td style="padding:5px; border-bottom:1px solid #eee;">' + (nc.reg_no || '') + '</td>';
+                    html += '<td style="padding:5px; border-bottom:1px solid #eee;">' + nc.old_name + '</td>';
+                    html += '<td style="padding:5px; border-bottom:1px solid #eee;"><strong>' + nc.new_name + '</strong></td>';
+                    html += '<td style="padding:5px; border-bottom:1px solid #eee;">' + nc.changed_at + '</td>';
+                    html += '</tr>';
+                });
+                html += '</tbody></table>';
+            }
+            
+            container.innerHTML = html;
+        })
+        .catch(err => {
+            container.innerHTML = '<p style="color:red;">Error: ' + err.message + '</p>';
+        });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadDownloadStats();
+});
 </script>
 
 </body>

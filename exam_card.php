@@ -506,16 +506,20 @@ $semesters = ['First Semester', 'Second Semester'];
             <?php endforeach; ?>
         </select>
     </div>
-    <button type="button" class="btn-view" onclick="viewExamCard()">
-        <i class="fas fa-eye"></i> View Exam Card
-    </button>
+    <button onclick="trackAndPrint('exam_card')" class="btn-print">
+    <i class="fas fa-print"></i> Print Exam Card
+</button>
 </div>
 
-<script>
-function viewExamCard() {
-    var level = document.getElementById('levelSelect').value;
-    var semester = document.getElementById('semesterSelect').value;
-    window.location.href = 'exam_card.php?level=' + encodeURIComponent(level) + '&semester=' + encodeURIComponent(semester);
+<<script>
+function trackAndPrint(docType) {
+    fetch('log_download.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'student_id=<?php echo $student_id; ?>&document_type=' + docType + '&action_type=print'
+    }).finally(function() {
+        window.print();
+    });
 }
 </script>
 
