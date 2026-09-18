@@ -627,15 +627,26 @@ $photo_path = 'uploads/students/' . $student['photo'];
             <i class="fas fa-arrow-left"></i> Back to Dashboard
         </a>
         <?php if ($form_submitted && !$form_error): ?>
-            <button onclick="window.print()" class="btn-print">
-                <i class="fas fa-print"></i> Print / PDF
-            </button>
-            <a href="posting_letter.php?reset=1" class="btn-reset">
-                <i class="fas fa-edit"></i> Edit Details
-            </a>
-        <?php endif; ?>
+    <button onclick="trackAndPrint()" class="btn-print">
+        <i class="fas fa-print"></i> Print / PDF
+    </button>
+    <a href="posting_letter.php?reset=1" class="btn-reset">
+        <i class="fas fa-edit"></i> Edit Details
+    </a>
+<?php endif; ?>
     </div>
 </div>
+<script>
+function trackAndPrint() {
+    fetch('log_download.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'student_id=<?php echo $student_id; ?>&document_type=posting_letter&action_type=print'
+    }).finally(function() {
+        window.print();
+    });
+}
+</script>
 
 </body>
 </html>

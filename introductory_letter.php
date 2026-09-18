@@ -450,14 +450,26 @@ $qr_url = "https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=" . url
     </div>
 </div>
 
-<div class="action-buttons no-print">
-    <button type="button" class="btn-print" onclick="window.print()">
+<<div class="action-buttons no-print">
+    <button type="button" class="btn-print" onclick="trackAndPrint()">
         <i class="fas fa-print"></i> Print Letter
     </button>
     <a href="student_dashboard.php" class="btn-back">
         <i class="fas fa-arrow-left"></i> Back to Dashboard
     </a>
 </div>
+
+<script>
+function trackAndPrint() {
+    fetch('log_download.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'student_id=<?php echo $student_id; ?>&document_type=introductory_letter&action_type=print'
+    }).finally(function() {
+        window.print();
+    });
+}
+</script>
 
 </body>
 </html>

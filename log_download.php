@@ -3,13 +3,13 @@ session_start();
 include 'connect.php';
 
 if (!isset($_SESSION['user_id'])) {
-    echo json_encode(['success' => false]);
+    echo json_encode(['success' => false, 'message' => 'Unauthorized']);
     exit();
 }
 
 $student_id = intval($_POST['student_id'] ?? 0);
 $document_type = mysqli_real_escape_string($conn, $_POST['document_type'] ?? '');
-$action_type = mysqli_real_escape_string($conn, $_POST['action_type'] ?? 'download');
+$action_type = mysqli_real_escape_string($conn, $_POST['action_type'] ?? 'print');
 $notes = mysqli_real_escape_string($conn, $_POST['notes'] ?? '');
 $user_id = intval($_SESSION['user_id']);
 
