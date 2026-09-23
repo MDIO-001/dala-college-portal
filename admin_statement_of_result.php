@@ -3,13 +3,28 @@ session_start();
 include 'connect.php';
 include 'result_functions.php';
 include 'statement_functions.php';
-
 include 'check_role.php';
 
-if (!isset($_SESSION['user_id']) || !canAccessResultSystem()) {
+// ============================================
+// ACCESS CONTROL - ADMIN DA PROVOST KAWAI
+// ============================================
+if (!isset($_SESSION['user_id'])) {
     header('Location: login.php');
     exit();
 }
+
+if (!canAccessStatementOfResult()) {
+    header('Location: staff_dashboard.php?error=access_denied');
+    exit();
+}
+
+// ============================================
+// NEMO ROLE DIN MAI AMFANI
+// ============================================
+$user_role = $_SESSION['role'] ?? '';
+$position = strtolower($_SESSION['position'] ?? '');
+$is_admin = ($user_role == 'admin');
+$is_provost = ($user_role == 'Provost') || ($position == 'provost');
 
 $admin_name = $_SESSION['fullname'] ?? 'Admin';
 
@@ -41,7 +56,7 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Statement of Result - Admin</title>
+    <title>Statement of Result</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * { margin:0; padding:0; box-sizing:border-box; }
@@ -51,15 +66,16 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
         .topbar { background:#0d2818; padding:15px 25px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; border-radius:12px; margin-bottom:20px; }
         .topbar .logo-title { color:#ffd54f; font-size:1.3rem; font-weight:800; }
         .topbar .logo-title span { color:#a5d6a7; }
+        .topbar .logo-sub { display:block; font-size:0.55rem; color:#c8e6c9; }
         .topbar nav a { color:#c8e6c9; text-decoration:none; padding:8px 16px; border-radius:25px; font-size:0.85rem; }
         .topbar nav a:hover { background:#2e7d32; }
         .topbar nav .logout { background:#c62828; color:white !important; }
         .topbar .admin-badge { background:#c62828; color:white; padding:6px 18px; border-radius:20px; font-size:0.8rem; font-weight:600; }
+        .topbar .provost-badge { background:#ffd54f; color:#0d2818; padding:6px 18px; border-radius:20px; font-size:0.8rem; font-weight:800; }
         
         .result-nav { background:white; padding:15px; border-radius:12px; margin-bottom:20px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; box-shadow:0 2px 10px rgba(0,0,0,0.05); }
         .result-nav .label { font-weight:700; color:#0d2818; margin-right:10px; font-size:0.85rem; }
         .result-nav a { padding:8px 15px; border-radius:6px; text-decoration:none; font-weight:600; font-size:0.75rem; }
-        .result-nav a:hover { transform:translateY(-2px); }
         .r-course { background:#2e7d32; color:white; }
         .r-grade { background:#f9a825; color:#0d2818; }
         .r-entry { background:#8d2c2c; color:white; }
@@ -336,34 +352,55 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
         <div class="topbar no-print">
             <div>
                 <span class="logo-title">DALA <span>COLLEGE</span></span>
-                <span style="display:block; font-size:0.55rem; color:#c8e6c9;">Admin Panel</span>
+                <span class="logo-sub">Result System</span>
             </div>
             <nav>
-                <a href="admin_dashboard.php">Dashboard</a>
+                <?php if ($is_admin): ?>
+                    <a href="admin_dashboard.php">Dashboard</a>
+                <?php else: ?>
+                    <a href="staff_dashboard.php">Dashboard</a>
+                <?php endif; ?>
                 <a href="logout.php" class="logout">Logout</a>
             </nav>
             <div>
-                <span class="admin-badge">👤 <?php echo htmlspecialchars($admin_name); ?></span>
+                <?php if ($is_admin): ?>
+                    <span class="admin-badge">👤 <?php echo htmlspecialchars($admin_name); ?> (ADMIN)</span>
+                <?php elseif ($is_provost): ?>
+                    <span class="provost-badge">👑 <?php echo htmlspecialchars($admin_name); ?> (PROVOST)</span>
+                <?php endif; ?>
             </div>
         </div>
 
         <div class="result-nav no-print">
             <span class="label">📊 RESULT SYSTEM:</span>
-            <a href="admin_course_structure.php" class="r-course">COURSE_STRUCTURE</a>
-            <a href="admin_grade_setup.php" class="r-grade">GRADE_SETUP</a>
-            <a href="admin_result_entry.php" class="r-entry">RESULT_ENTRY</a>
-            <a href="admin_result_slip.php" class="r-slip">RESULT_SLIP</a>
-            <a href="admin_result_slip_pro.php" class="r-slip-pro">RESULT_SLIP_PRO</a>
-            <a href="admin_transcript.php" class="r-transcript">TRANSCRIPT</a>
-            <a href="admin_final_result.php" class="r-final">FINAL_RESULT</a>
-            <a href="admin_settings.php" class="r-settings">SETTINGS</a>
-            <a href="admin_result_database.php" class="r-database">RESULT_DATABASE</a>
-            <a href="admin_statement_of_result.php" class="r-statement">STATEMENT_OF_RESULT</a>
+            
+            <?php if ($is_admin): ?>
+                <a href="admin_course_structure.php" class="r-course">COURSE_STRUCTURE</a>
+                <a href="admin_grade_setup.php" class="r-grade">GRADE_SETUP</a>
+                <a href="admin_result_entry.php" class="r-entry">RESULT_ENTRY</a>
+                <a href="admin_result_slip.php" class="r-slip">RESULT_SLIP</a>
+                <a href="admin_result_slip_pro.php" class="r-slip-pro">RESULT_SLIP_PRO</a>
+                <a href="admin_transcript.php" class="r-transcript">TRANSCRIPT</a>
+                <a href="admin_final_result.php" class="r-final">FINAL_RESULT</a>
+                <a href="admin_settings.php" class="r-settings">SETTINGS</a>
+                <a href="admin_result_database.php" class="r-database">RESULT_DATABASE</a>
+                <a href="admin_statement_of_result.php" class="r-statement">STATEMENT_OF_RESULT</a>
+            <?php elseif ($is_provost): ?>
+                <a href="admin_course_structure.php" class="r-course">COURSE_STRUCTURE</a>
+                <a href="admin_grade_setup.php" class="r-grade">GRADE_SETUP</a>
+                <a href="admin_result_entry.php" class="r-entry">RESULT_ENTRY</a>
+                <a href="admin_result_slip.php" class="r-slip">RESULT_SLIP</a>
+                <a href="admin_result_slip_pro.php" class="r-slip-pro">RESULT_SLIP_PRO</a>
+                <a href="admin_transcript.php" class="r-transcript">TRANSCRIPT</a>
+                <a href="admin_final_result.php" class="r-final">FINAL_RESULT</a>
+                <a href="admin_result_database.php" class="r-database">RESULT_DATABASE</a>
+                <a href="admin_statement_of_result.php" class="r-statement">STATEMENT_OF_RESULT</a>
+            <?php endif; ?>
         </div>
 
         <!-- SELECT STUDENT -->
         <div class="card no-print">
-            <h2>🎓 Zaɓi Dalibi don Statement of Result</h2>
+            <h2>🎓 Select Student for Statement of Result</h2>
             <form method="GET">
                 <div class="form-row">
                     <div class="form-group">
@@ -377,7 +414,7 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
                             <?php endwhile; ?>
                         </select>
                     </div>
-                    <button type="submit" class="btn btn-blue"><i class="fas fa-eye"></i> Nuna Statement</button>
+                    <button type="submit" class="btn btn-blue"><i class="fas fa-eye"></i> View Statement</button>
                 </div>
             </form>
         </div>
@@ -427,7 +464,16 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
             </div>
             
             <!-- TITLE -->
-            <div class="stmt-title">NCE STATEMENT OF RESULT</div>
+            <div class="stmt-title">
+                <?php 
+                $programme = strtoupper($student['programme'] ?? 'NCE');
+                if ($programme == 'DEGREE' || $programme == 'DEG') {
+                    echo 'DEGREE STATEMENT OF RESULT';
+                } else {
+                    echo 'NCE STATEMENT OF RESULT';
+                }
+                ?>
+            </div>
             
             <!-- STUDENT INFO -->
             <div class="stmt-info-box">
@@ -486,7 +532,7 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
                     <?php if (empty($category_gpas)): ?>
                     <tr>
                         <td colspan="4" class="center" style="padding:20px; color:#999;">
-                            Babu sakamako da aka shigar
+                            No results entered yet
                         </td>
                     </tr>
                     <?php endif; ?>
@@ -508,7 +554,6 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
             <!-- BOTTOM: QR + REGISTRAR -->
             <div class="stmt-bottom">
                 <div class="qr-box">
-                    <!-- QR Code - zai iya amfani da Google Chart API -->
                     <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=<?php echo urlencode('https://dala-portal.local/verify.php?reg_no=' . ($student['reg_no'] ?? $student['student_id'])); ?>" 
                          alt="QR Code">
                     <p>Scan To Verify</p>
@@ -522,7 +567,7 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
         
         <?php elseif ($student_id > 0): ?>
             <div class="card">
-                <p style="text-align:center; padding:40px; color:#c62828;">❌ Ba a sami dalibi ba</p>
+                <p style="text-align:center; padding:40px; color:#c62828;">❌ Student not found</p>
             </div>
         <?php endif; ?>
     </div>

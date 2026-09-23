@@ -46,7 +46,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
         $errors[] = 'Passwords do not match.';
     }
     
-    // Duba phone
+    // ============================================
+    // DUBA PHONE (KADA YA MAIMAITA)
+    // ============================================
     if (!empty($phone)) {
         $check_phone = mysqli_query($conn, "SELECT id FROM students WHERE phone = '$phone'");
         if (mysqli_num_rows($check_phone) > 0) {
@@ -57,17 +59,30 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
     // ============================================
     // TABBATAR DA SCRATCH CARD (APPLICATION)
     // ============================================
+    $card = null;
     if (!empty($scratch_pin)) {
         $card_check = mysqli_query($conn, "SELECT * FROM scratch_cards 
                                            WHERE (pin = '$scratch_pin' OR card_code = '$scratch_pin') 
                                            AND card_type = 'application'");
         
-        if (!$card_check || mysqli_num_rows($card_check) == 0) {
+        if (!$card_check) {
+            $errors[] = '❌ Database error: ' . mysqli_error($conn);
+        } elseif (mysqli_num_rows($card_check) == 0) {
             $errors[] = '❌ Scratch Card ɗin ba daidai ba ne ko ba na Application ba.';
         } else {
             $card = mysqli_fetch_assoc($card_check);
+            
             if ($card['status'] == 'used') {
                 $errors[] = '❌ An riga an yi amfani da wannan Scratch Card ɗin.';
+            }
+            if ($card['is_active'] != 1) {
+                $errors[] = '❌ Scratch Card ɗin ba ya aiki.';
+            }
+            if (!empty($card['expiry_date']) && $card['expiry_date'] < date('Y-m-d')) {
+                $errors[] = '❌ Scratch Card ɗin ya ƙare (expired).';
+            }
+            if ($card['usage_count'] >= $card['usage_limit']) {
+                $errors[] = '❌ An riga an yi amfani da wannan Scratch Card ɗin har iyaka.';
             }
         }
     }
@@ -75,35 +90,71 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
     if (empty($errors)) {
         $username = strtolower(str_replace(' ', '_', $fullname)) . rand(10, 99);
         $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-        $student_level = 'NCE I'; // Za a sabunta shi idan an Accept
         
         // ============================================
-        // INSERT STUDENT - BA A BA DA ADMISSION NUMBER BA
+        // ƘAYYADE LEVEL DA SHEKARUN SHIGA BISA GA PROGRAMME
+        // ============================================
+        $programme_upper = strtoupper(trim($programme));
+        
+        if ($programme_upper == 'NCE') {
+            $student_level = 'NCE I';
+            $entry_year = '2026/2027';
+            $graduation_year = '2028/2029';
+        } elseif ($programme_upper == 'DEGREE' || $programme_upper == 'DEG') {
+            $student_level = '400 Level';
+            $entry_year = '2026/2027';
+            $graduation_year = '2029/2030';
+        } elseif ($programme_upper == 'ENTREPRENEURSHIP' || $programme_upper == 'ENT') {
+            $student_level = 'ENTREPRENEURSHIP';
+            $entry_year = '2026/2027';
+            $graduation_year = '2027/2028';
+        } else {
+            $student_level = 'NCE I';
+            $entry_year = '2026/2027';
+            $graduation_year = '2028/2029';
+        }
+        
+        // ============================================
+        // INSERT STUDENT - BA A BA DA REG NO BA
         // ============================================
         $insert = "INSERT INTO students (
             username, password, fullname, phone, 
             programme, course, combination, dob, address, gender, 
-            branch_code, status, level, created_at
+            branch_code, status, level, entry_year, graduation_year, created_at
         ) VALUES (
             '$username', '$hashed_password', '$fullname', '$phone',
             '$programme', '$course', '$course', '$dob', '$address', '$gender', 
-            '$branch', 'pending', '$student_level', NOW()
+            '$branch', 'pending', '$student_level', '$entry_year', '$graduation_year', NOW()
         )";
         
         if (mysqli_query($conn, $insert)) {
             $new_id = mysqli_insert_id($conn);
             
-            // Sabunta Scratch Card
-            mysqli_query($conn, "UPDATE scratch_cards SET status = 'used', used_by = $new_id, used_at = NOW() WHERE id = {$card['id']}");
+            // ============================================
+            // SABUNTA SCRATCH CARD
+            // ============================================
+            if ($card) {
+                mysqli_query($conn, "UPDATE scratch_cards 
+                                     SET status = 'used', 
+                                         used_by = $new_id, 
+                                         used_at = NOW(),
+                                         usage_count = usage_count + 1
+                                     WHERE id = {$card['id']}");
+            }
             
-            // Saka a applications table
+            // ============================================
+            // SAKA A APPLICATIONS TABLE
+            // ============================================
             $app_insert = "INSERT INTO applications (
-                student_id, fullname, phone, course_applied, programme, branch_code, application_date, status
+                student_id, fullname, phone, course_applied, programme, branch_code, created_at, status
             ) VALUES (
-                '$new_id', '$fullname', '$phone', '$course', '$programme', '$branch', CURDATE(), 'pending'
+                '$new_id', '$fullname', '$phone', '$course', '$programme', '$branch', NOW(), 'pending'
             )";
             mysqli_query($conn, $app_insert);
             
+            // ============================================
+            // SAITA SESSION
+            // ============================================
             $_SESSION['user_id'] = $new_id;
             $_SESSION['fullname'] = $fullname;
             $_SESSION['phone'] = $phone;
@@ -309,6 +360,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
             border-radius: 8px;
             margin: 10px 0;
             display: inline-block;
+            text-align: left;
         }
         .success-box .highlight strong {
             color: #2e7d32;
@@ -415,7 +467,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
                 <div class="highlight">
                     <p><strong>Name:</strong> <?php echo htmlspecialchars($_SESSION['fullname'] ?? $fullname); ?></p>
                     <p><strong>Phone:</strong> <?php echo htmlspecialchars($_SESSION['phone'] ?? $phone); ?></p>
+                    <p><strong>Programme:</strong> <?php echo htmlspecialchars($programme); ?></p>
+                    <p><strong>Course:</strong> <?php echo htmlspecialchars($course); ?></p>
                     <p><strong>Branch:</strong> <?php echo htmlspecialchars($_SESSION['branch_code'] ?? $branch); ?></p>
+                    <p><strong>Level:</strong> <?php echo htmlspecialchars($_SESSION['level'] ?? 'NCE I'); ?></p>
                 </div>
                 
                 <p style="color:#6a8f6a; font-size:0.9rem;">
@@ -555,7 +610,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
         { value: 'ARB/ISS', text: 'ARB/ISS - Arabic / Islamic Studies' },
         { value: 'ENG/ISS', text: 'ENG/ISS - English / Islamic Studies' },
         { value: 'PED', text: 'PED - Primary Education' },
-        { value: 'HAU/ENG', text: 'HAU/ENG - Hausa / English' },
+        { value: 'ENG/HAU', text: 'ENG/HAU - English / Hausa' },
         { value: 'CSC/ISC', text: 'CSC/ISC - Computer Science / Islamic Studies' },
         { value: 'ENG/SOS', text: 'ENG/SOS - English / Social Studies' },
         { value: 'CSC/BIO', text: 'CSC/BIO - Computer Science / Biology' },

@@ -1,83 +1,218 @@
 <?php
 // ============================================
-// ROLE CHECKING FUNCTION
+// CHECK ROLE - ACCESS CONTROL
 // ============================================
 
-/**
- * Duba idan user yana da izinin shiga result system
- * Admin da Exam Officer kawai
- */
+// ============================================
+// CAN ACCESS RESULT SYSTEM (Admin, Provost, Exam Officer)
+// ============================================
 function canAccessResultSystem() {
-    if (!isset($_SESSION['role'])) return false;
-    return in_array($_SESSION['role'], ['admin', 'exam_officer']);
+    if (!isset($_SESSION['user_id'])) return false;
+    
+    $user_role = $_SESSION['role'] ?? '';
+    $position = strtolower(trim($_SESSION['position'] ?? ''));
+    
+    return (
+        $user_role == 'admin' 
+        || $user_role == 'Provost' 
+        || $user_role == 'Exam Officer'
+        || $position == 'provost'
+        || $position == 'exam officer'
+    );
 }
 
-/**
- * Duba idan user admin ne kawai
- */
-function isAdmin() {
-    return isset($_SESSION['role']) && $_SESSION['role'] == 'admin';
-}
-
-/**
- * Duba idan user exam officer ne
- */
-function isExamOfficer() {
-    return isset($_SESSION['role']) && $_SESSION['role'] == 'exam_officer';
-}
-
-/**
- * Duba idan user zai iya yin FINAL RESULT da STATEMENT
- */
-function canAccessFinalResult() {
-    return isAdmin();
-}
-
-/**
- * Duba idan user zai iya yin SETTINGS
- */
+// ============================================
+// CAN ACCESS SETTINGS (ADMIN KAWAI)
+// ============================================
 function canAccessSettings() {
-    return isAdmin();
+    if (!isset($_SESSION['user_id'])) return false;
+    return ($_SESSION['role'] ?? '') == 'admin';
 }
 
-/**
- * Nuna navbar ɗin result system bisa role
- */
-function renderResultNavbar($current_page = '') {
-    $role = $_SESSION['role'] ?? '';
-    $is_admin = ($role == 'admin');
+// ============================================
+// CAN ACCESS TRANSCRIPT (Admin, Provost, Exam Officer)
+// ============================================
+function canAccessTranscript() {
+    return canAccessResultSystem();
+}
+
+// ============================================
+// CAN ACCESS FINAL RESULT (Admin da Provost)
+// ============================================
+function canAccessFinalResult() {
+    if (!isset($_SESSION['user_id'])) return false;
     
-    echo '<div class="result-nav">';
-    echo '<span class="label">📊 RESULT SYSTEM:</span>';
+    $user_role = $_SESSION['role'] ?? '';
+    $position = strtolower(trim($_SESSION['position'] ?? ''));
     
-    $links = [
-        'admin_course_structure.php' => ['COURSE_STRUCTURE', 'r-course'],
-        'admin_grade_setup.php' => ['GRADE_SETUP', 'r-grade'],
-        'admin_result_entry.php' => ['RESULT_ENTRY', 'r-entry'],
-        'admin_result_slip.php' => ['RESULT_SLIP', 'r-slip'],
-        'admin_result_slip_pro.php' => ['RESULT_SLIP_PRO', 'r-slip-pro'],
-        'admin_transcript.php' => ['TRANSCRIPT', 'r-transcript'],
-    ];
+    return (
+        $user_role == 'admin' 
+        || $user_role == 'Provost' 
+        || $position == 'provost'
+    );
+}
+
+// ============================================
+// CAN ACCESS STATEMENT OF RESULT (Admin da Provost)
+// ============================================
+function canAccessStatementOfResult() {
+    if (!isset($_SESSION['user_id'])) return false;
     
-    foreach ($links as $file => $data) {
-        $active = ($current_page == $file) ? ' active' : '';
-        echo '<a href="' . $file . '" class="' . $data[1] . $active . '">' . $data[0] . '</a>';
+    $user_role = $_SESSION['role'] ?? '';
+    $position = strtolower(trim($_SESSION['position'] ?? ''));
+    
+    return (
+        $user_role == 'admin' 
+        || $user_role == 'Provost' 
+        || $position == 'provost'
+    );
+}
+
+// ============================================
+// CAN ACCESS GRADE SETUP (Admin, Provost, Exam Officer)
+// ============================================
+function canAccessGradeSetup() {
+    return canAccessResultSystem();
+}
+
+// ============================================
+// CAN ACCESS RESULT ENTRY (Admin, Provost, Exam Officer)
+// ============================================
+function canAccessResultEntry() {
+    return canAccessResultSystem();
+}
+
+// ============================================
+// CAN ACCESS RESULT SLIP (Admin, Provost, Exam Officer)
+// ============================================
+function canAccessResultSlip() {
+    return canAccessResultSystem();
+}
+
+// ============================================
+// CAN ACCESS RESULT DATABASE (Admin, Provost, Exam Officer)
+// ============================================
+function canAccessResultDatabase() {
+    return canAccessResultSystem();
+}
+
+// ============================================
+// CAN ACCESS COURSE STRUCTURE (Admin, Provost, Exam Officer)
+// ============================================
+function canAccessCourseStructure() {
+    return canAccessResultSystem();
+}
+
+// ============================================
+// IS ADMIN
+// ============================================
+function isAdmin() {
+    return ($_SESSION['role'] ?? '') == 'admin';
+}
+
+// ============================================
+// IS PROVOST
+// ============================================
+function isProvost() {
+    $user_role = $_SESSION['role'] ?? '';
+    $position = strtolower(trim($_SESSION['position'] ?? ''));
+    return ($user_role == 'Provost' || $position == 'provost');
+}
+
+// ============================================
+// IS EXAM OFFICER
+// ============================================
+function isExamOfficer() {
+    $user_role = $_SESSION['role'] ?? '';
+    $position = strtolower(trim($_SESSION['position'] ?? ''));
+    return ($user_role == 'Exam Officer' || $position == 'exam officer');
+}
+
+// ============================================
+// IS STAFF
+// ============================================
+function isStaff() {
+    return ($_SESSION['role'] ?? '') == 'staff';
+}
+
+// ============================================
+// IS ACCOUNTANT
+// ============================================
+function isAccountant() {
+    return ($_SESSION['role'] ?? '') == 'Accountant';
+}
+
+// ============================================
+// IS BURSARY
+// ============================================
+function isBursary() {
+    return ($_SESSION['role'] ?? '') == 'Bursary';
+}
+
+// ============================================
+// IS ADMISSION OFFICER
+// ============================================
+function isAdmissionOfficer() {
+    return ($_SESSION['role'] ?? '') == 'Admission Officer';
+}
+
+// ============================================
+// CAN ACCEPT APPLICATIONS
+// ============================================
+function canAcceptApplications() {
+    if (!isset($_SESSION['user_id'])) return false;
+    
+    $user_role = $_SESSION['role'] ?? '';
+    $position = strtolower(trim($_SESSION['position'] ?? ''));
+    $can_accept = $_SESSION['can_accept'] ?? 'no';
+    
+    return (
+        $can_accept == 'yes'
+        || $user_role == 'admin'
+        || $user_role == 'Provost'
+        || $user_role == 'Admission Officer'
+        || $position == 'provost'
+        || $position == 'admission officer'
+    );
+}
+
+// ============================================
+// REQUIRE RESULT SYSTEM ACCESS
+// ============================================
+function requireResultSystemAccess() {
+    if (!canAccessResultSystem()) {
+        header('Location: staff_dashboard.php?error=access_denied');
+        exit();
     }
-    
-    // Final Result da Statement - Admin kawai
-    if ($is_admin) {
-        $active_final = ($current_page == 'admin_final_result.php') ? ' active' : '';
-        $active_stmt = ($current_page == 'admin_statement_of_result.php') ? ' active' : '';
-        echo '<a href="admin_final_result.php" class="r-final' . $active_final . '">FINAL_RESULT</a>';
-        echo '<a href="admin_settings.php" class="r-settings' . ($current_page == 'admin_settings.php' ? ' active' : '') . '">SETTINGS</a>';
+}
+
+// ============================================
+// REQUIRE ADMIN ACCESS
+// ============================================
+function requireAdminAccess() {
+    if (!isAdmin()) {
+        header('Location: staff_dashboard.php?error=access_denied');
+        exit();
     }
-    
-    echo '<a href="admin_result_database.php" class="r-database' . ($current_page == 'admin_result_database.php' ? ' active' : '') . '">RESULT_DATABASE</a>';
-    
-    if ($is_admin) {
-        echo '<a href="admin_statement_of_result.php" class="r-statement' . $active_stmt . '">STATEMENT_OF_RESULT</a>';
+}
+
+// ============================================
+// REQUIRE FINAL RESULT ACCESS
+// ============================================
+function requireFinalResultAccess() {
+    if (!canAccessFinalResult()) {
+        header('Location: staff_dashboard.php?error=access_denied');
+        exit();
     }
-    
-    echo '</div>';
+}
+
+// ============================================
+// REQUIRE STATEMENT ACCESS
+// ============================================
+function requireStatementAccess() {
+    if (!canAccessStatementOfResult()) {
+        header('Location: staff_dashboard.php?error=access_denied');
+        exit();
+    }
 }
 ?>

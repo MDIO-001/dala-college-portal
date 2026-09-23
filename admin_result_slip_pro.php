@@ -1,14 +1,13 @@
 <?php
 session_start();
-include 'connect.php';
-include 'result_functions.php';
+require_once 'connect.php'; // Yana haɗa da $pdo da $conn
+require_once 'result_functions.php';
 
 if (!isset($_SESSION['user_id'])) {
     header('Location: login.php');
     exit();
 }
 
-// Role ɗin da aka yarda su shiga Result Slip Pro
 $user_role = $_SESSION['role'] ?? '';
 $allowed_roles = ['admin', 'Exam Officer', 'Provost'];
 
@@ -24,60 +23,82 @@ $admin_name = $_SESSION['fullname'] ?? 'Admin';
 // ============================================
 if (isset($_GET['download_csv']) && isset($_GET['student_id'])) {
     $sid = intval($_GET['student_id']);
-    $session = mysqli_real_escape_string($conn, $_GET['session'] ?? '');
-    $semester = mysqli_real_escape_string($conn, $_GET['semester'] ?? '');
-    $level = mysqli_real_escape_string($conn, $_GET['level'] ?? '');
-    
-    $student = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM students WHERE id = $sid"));
+    $session_dl = $_GET['session'] ?? '';
+    $semester_dl = $_GET['semester'] ?? '';
+    $level_dl = $_GET['level'] ?? '';
+
+    $stmt = $pdo->prepare("SELECT * FROM students WHERE id = ?");
+    $stmt->execute([$sid]);
+    $student = $stmt->fetch();
     if (!$student) exit();
-    
-    $rq = "SELECT * FROM results WHERE student_id = $sid AND session = '$session' AND semester = '$semester' AND level = '$level' ORDER BY course_code";
-    $rr = mysqli_query($conn, $rq);
-    
+
+    $stmt = $pdo->prepare("SELECT * FROM results 
+                           WHERE student_id = ? 
+                           AND session = ? 
+                           AND semester = ? 
+                           AND level = ? 
+                           ORDER BY course_code");
+    $stmt->execute([$sid, $session_dl, $semester_dl, $level_dl]);
+    $results_dl = $stmt->fetchAll();
+
+    // Samo carry overs
+    $carryovers_dl = getCarryOverForLevel($pdo, $sid, $level_dl, $semester_dl, $session_dl);
+
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="result_slip_' . str_replace('/', '_', $student['reg_no']) . '.csv"');
-    
+
     $output = fopen('php://output', 'w');
     fputcsv($output, ['DALA COLLEGE OF EDUCATION, KANO']);
-    fputcsv($output, ['RESULT SLIP']);
+    fputcsv($output, ['RESULT SLIP PRO']);
     fputcsv($output, []);
     fputcsv($output, ['Student Name:', $student['fullname']]);
     fputcsv($output, ['Reg No:', $student['reg_no']]);
-    fputcsv($output, ['Combination:', $student['combination']]);
-    fputcsv($output, ['Level:', $level]);
-    fputcsv($output, ['Semester:', $semester]);
-    fputcsv($output, ['Session:', $session]);
+    fputcsv($output, ['Combination:', $student['combination'] ?? $student['course']]);
+    fputcsv($output, ['Level:', $level_dl]);
+    fputcsv($output, ['Semester:', $semester_dl]);
+    fputcsv($output, ['Session:', $session_dl]);
     fputcsv($output, []);
-    fputcsv($output, ['S/N', 'Course Code', 'Course Title', 'Unit', 'Grade', 'Point', 'Remark']);
-    
+    fputcsv($output, ['S/N', 'Course Code', 'Course Title', 'Unit', 'Grade', 'Point', 'Remark', 'Status']);
+
     $i = 1;
-    $total_units = 0;
-    $total_points = 0;
-    while ($r = mysqli_fetch_assoc($rr)) {
+    $total_units_dl = 0;
+    $total_points_dl = 0;
+
+    foreach ($results_dl as $r) {
         $remark = ($r['grade'] == 'F') ? 'Fail' : 'Pass';
-        fputcsv($output, [$i++, $r['course_code'], $r['course_title'], $r['credit_units'], $r['grade'], number_format($r['grade_point'], 1), $remark]);
+        fputcsv($output, [$i++, $r['course_code'], $r['course_title'], $r['credit_units'], $r['grade'], number_format($r['grade_point'], 1), $remark, 'Current']);
         if ($r['grade'] != 'F') {
-            $total_units += $r['credit_units'];
-            $total_points += $r['grade_point'] * $r['credit_units'];
+            $total_units_dl += $r['credit_units'];
+            $total_points_dl += $r['grade_point'] * $r['credit_units'];
         }
     }
+
+    foreach ($carryovers_dl as $r) {
+        $remark = ($r['grade'] == 'F') ? 'Fail' : 'Pass';
+        fputcsv($output, [$i++, $r['course_code'], $r['course_title'], $r['credit_units'], $r['grade'], number_format($r['grade_point'], 1), $remark, 'Carry Over (' . $r['session'] . ')']);
+    }
+
     fputcsv($output, []);
-    fputcsv($output, ['Total Units:', $total_units]);
-    fputcsv($output, ['GPA:', number_format($total_units > 0 ? $total_points / $total_units : 0, 2)]);
-    fputcsv($output, ['CGPA:', number_format(getStudentCGPA($conn, $sid), 2)]);
-    fputcsv($output, ['Classification:', getGradeClassification(getStudentCGPA($conn, $sid))]);
-    
+    fputcsv($output, ['Total Units:', $total_units_dl]);
+    fputcsv($output, ['GPA:', number_format($total_units_dl > 0 ? $total_points_dl / $total_units_dl : 0, 2)]);
+    fputcsv($output, ['CGPA:', number_format(getStudentCGPA($pdo, $sid), 2)]);
+    fputcsv($output, ['Classification:', getGradeClassification(getStudentCGPA($pdo, $sid))]);
+
     fclose($output);
     exit();
 }
 
+// ============================================
+// PARAMETERS
+// ============================================
 $student_id = isset($_GET['student_id']) ? intval($_GET['student_id']) : 0;
-$session = isset($_GET['session']) ? mysqli_real_escape_string($conn, $_GET['session']) : getSetting($conn, 'current_session');
-$semester = isset($_GET['semester']) ? mysqli_real_escape_string($conn, $_GET['semester']) : 'First Semester';
-$level = isset($_GET['level']) ? mysqli_real_escape_string($conn, $_GET['level']) : '';
+$session = $_GET['session'] ?? getSetting($pdo, 'current_session');
+$semester = $_GET['semester'] ?? 'First Semester';
+$level = $_GET['level'] ?? '';
 
 $student = null;
 $results = [];
+$carryovers = [];
 $total_units = 0;
 $total_points = 0;
 $gpa = 0;
@@ -85,33 +106,54 @@ $cgpa = 0;
 $classification = '';
 
 if ($student_id > 0) {
-    $student = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM students WHERE id = $student_id"));
-    
+    $stmt = $pdo->prepare("SELECT * FROM students WHERE id = ?");
+    $stmt->execute([$student_id]);
+    $student = $stmt->fetch();
+
     if ($student) {
         if (empty($level)) $level = $student['level'];
-        
-        $rq = "SELECT * FROM results 
-               WHERE student_id = $student_id 
-               AND session = '$session' 
-               AND semester = '$semester' 
-               AND level = '$level'
-               ORDER BY course_code";
-        $rr = mysqli_query($conn, $rq);
-        while ($r = mysqli_fetch_assoc($rr)) {
-            $results[] = $r;
+
+        // ============================================
+        // 1. SAMO RESULTS NA WANNAN SEMESTER
+        // ============================================
+        $stmt = $pdo->prepare("SELECT * FROM results 
+                               WHERE student_id = ? 
+                               AND session = ? 
+                               AND semester = ? 
+                               AND level = ?
+                               ORDER BY course_code");
+        $stmt->execute([$student_id, $session, $semester, $level]);
+        $results = $stmt->fetchAll();
+
+        // ============================================
+        // 2. SAMO CARRY OVER
+        // ============================================
+        if (function_exists('getCarryOverForLevel')) {
+            $carryovers = getCarryOverForLevel($pdo, $student_id, $level, $semester, $session);
+        }
+
+        // ============================================
+        // 3. LISSafta GPA (na wannan semester kawai)
+        // ============================================
+        foreach ($results as $r) {
             if ($r['grade'] != 'F') {
                 $total_units += $r['credit_units'];
                 $total_points += $r['grade_point'] * $r['credit_units'];
             }
         }
-        
+
         $gpa = $total_units > 0 ? round($total_points / $total_units, 2) : 0;
-        $cgpa = getStudentCGPA($conn, $student_id);
+        $cgpa = getStudentCGPA($pdo, $student_id);
         $classification = getGradeClassification($cgpa);
     }
 }
 
-$students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, level FROM students ORDER BY fullname");
+// Samo jerin dalibai
+$stmt = $pdo->query("SELECT id, reg_no, fullname, combination, level FROM students ORDER BY fullname");
+$students_list = $stmt->fetchAll();
+
+// Adadin courses na carryover
+$total_carryover = count($carryovers);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -123,7 +165,7 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
         * { margin:0; padding:0; box-sizing:border-box; }
         body { font-family:'Segoe UI',Tahoma,sans-serif; background:#f0f4f8; padding:20px; }
         .container { max-width:1200px; margin:0 auto; }
-        
+
         .topbar { background:#0d2818; padding:15px 25px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; border-radius:12px; margin-bottom:20px; }
         .topbar .logo-title { color:#ffd54f; font-size:1.3rem; font-weight:800; }
         .topbar .logo-title span { color:#a5d6a7; }
@@ -132,7 +174,7 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
         .topbar nav a:hover { background:#2e7d32; }
         .topbar nav .logout { background:#c62828; color:white !important; }
         .topbar .admin-badge { background:#c62828; color:white; padding:6px 18px; border-radius:20px; font-size:0.8rem; font-weight:600; }
-        
+
         .result-nav { background:white; padding:15px; border-radius:12px; margin-bottom:20px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; box-shadow:0 2px 10px rgba(0,0,0,0.05); }
         .result-nav .label { font-weight:700; color:#0d2818; margin-right:10px; font-size:0.85rem; }
         .result-nav a { padding:8px 15px; border-radius:6px; text-decoration:none; font-weight:600; font-size:0.75rem; }
@@ -146,14 +188,14 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
         .r-settings { background:#e65100; color:white; }
         .r-database { background:#37474f; color:white; }
         .r-statement { background:#455a64; color:white; }
-        
+
         .card { background:white; padding:25px; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,0.05); margin-bottom:20px; }
         .card h2 { color:#0d2818; margin-bottom:15px; font-size:1.2rem; }
-        
+
         .form-row { display:grid; grid-template-columns:repeat(4,1fr); gap:15px; margin-bottom:15px; }
         .form-group label { display:block; font-weight:600; color:#1a2e1a; margin-bottom:5px; font-size:0.85rem; }
         .form-group select, .form-group input { width:100%; padding:10px; border:2px solid #dce8dc; border-radius:8px; font-size:0.9rem; }
-        
+
         .btn { padding:10px 25px; border:none; border-radius:8px; font-weight:700; font-size:0.9rem; cursor:pointer; text-decoration:none; display:inline-block; margin-right:8px; }
         .btn-green { background:#2e7d32; color:white; }
         .btn-green:hover { background:#1b5e20; }
@@ -163,7 +205,7 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
         .btn-orange:hover { background:#e65100; }
         .btn-red { background:#c62828; color:white; }
         .btn-red:hover { background:#b71c1c; }
-        
+
         /* ============================================ */
         /* SLIP PRO DESIGN */
         /* ============================================ */
@@ -176,8 +218,7 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
             position: relative; 
             overflow: hidden;
         }
-        
-        /* WATERMARK - LOGO */
+
         .slip-pro::before { 
             content: ''; 
             position: absolute; 
@@ -194,10 +235,9 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
             z-index: 0; 
             pointer-events: none; 
         }
-        
+
         .slip-pro > * { position: relative; z-index: 1; }
-        
-        /* HEADER - LOGO + TEXT */
+
         .pro-header { 
             display: grid; 
             grid-template-columns: 150px 1fr; 
@@ -213,10 +253,9 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
         .pro-header .school-name { font-size: 1.8rem; font-weight: 900; color: #0d2818; letter-spacing: 1.5px; }
         .pro-header .school-loc { font-size: 1rem; font-weight: 700; color: #0d2818; margin: 3px 0; }
         .pro-header .accreditation { font-size: 0.8rem; color: #c62828; font-weight: 700; border-top: 1px solid #c62828; border-bottom: 1px solid #c62828; padding: 3px 0; display: inline-block; margin-top: 5px; }
-        
+
         .pro-title { text-align: center; font-size: 1.3rem; font-weight: 900; letter-spacing: 3px; color: white; background: #0d2818; padding: 10px; margin-bottom: 20px; text-transform: uppercase; }
-        
-        /* INFO WITH PHOTO ON LEFT */
+
         .pro-info-wrapper {
             display: grid;
             grid-template-columns: 150px 1fr;
@@ -224,7 +263,7 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
             margin-bottom: 25px;
             align-items: start;
         }
-        
+
         .pro-photo-left {
             width: 150px;
             height: 180px;
@@ -234,38 +273,52 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
             background: #f0f0f0;
             box-shadow: 4px 4px 10px rgba(0,0,0,0.2);
         }
-        
+
         .pro-photo-left img {
             width: 100%;
             height: 100%;
             object-fit: cover;
             display: block;
         }
-        
+
         .pro-info {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 0 30px;
             font-size: 0.95rem;
         }
-        
+
         .pro-info .row { 
             display: flex; 
             padding: 6px 0; 
             border-bottom: 1px dotted #999; 
         }
-        
+
         .pro-info .label { 
             font-weight: 800; 
             color: #0d2818; 
             min-width: 140px; 
         }
-        
+
         .pro-info .value { 
             font-weight: 700; 
             color: #000; 
         }
-        
+
+        /* ALERT CARRY OVER */
+        .carryover-alert {
+            background: #fff3e0;
+            border: 2px solid #f57c00;
+            border-left: 6px solid #e65100;
+            padding: 12px 20px;
+            margin-bottom: 20px;
+            border-radius: 6px;
+        }
+        .carryover-alert strong {
+            color: #e65100;
+            font-size: 0.95rem;
+        }
+
         /* TABLE */
         .pro-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 2px solid #0d2818; }
         .pro-table th { background: #2e7d32; color: white; padding: 10px; font-size: 0.8rem; font-weight: 900; text-transform: uppercase; border: 1px solid #0d2818; text-align: center; }
@@ -278,11 +331,26 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
         .pro-table .grade-D { color: #6a1b9a; }
         .pro-table .grade-E { color: #c2185b; }
         .pro-table .grade-F { color: #c62828; }
-        
-        /* REMARK PASS/FAIL */
+
+        /* CARRY OVER ROW */
+        .carryover-row td {
+            background: #fff3e0 !important;
+            border-left: 4px solid #f57c00;
+        }
+        .carryover-badge {
+            background: #e65100;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            margin-left: 6px;
+            text-transform: uppercase;
+        }
+
         .remark-pass { color: #2e7d32; font-weight: 700; }
         .remark-fail { color: #c62828; font-weight: 700; }
-        
+
         /* SUMMARY */
         .pro-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
         .pro-summary .box { border: 2px solid #0d2818; padding: 12px; text-align: center; border-radius: 6px; background: #f8faf8; }
@@ -292,7 +360,7 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
         .pro-summary .box.gpa .value { color: #2e7d32; }
         .pro-summary .box.cgpa .value { color: #c62828; }
         .pro-summary .box .label { font-size: 0.7rem; text-transform: uppercase; color: #6a8f6a; font-weight: 700; margin-top: 5px; }
-        
+
         /* BOTTOM */
         .pro-bottom { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 40px; align-items: end; }
         .pro-bottom .qr-box { text-align: center; }
@@ -301,12 +369,12 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
         .pro-bottom .sign-box { text-align: center; }
         .pro-bottom .sign-line { border-top: 2px solid #0d2818; padding-top: 30px; margin-bottom: 5px; }
         .pro-bottom .sign-title { font-weight: 800; font-size: 0.85rem; color: #0d2818; text-transform: uppercase; }
-        
+
         .pro-footer { text-align: center; margin-top: 20px; padding-top: 10px; border-top: 1px solid #ccc; font-size: 0.75rem; color: #666; font-style: italic; }
-        
+
         .empty-state { text-align:center; padding:40px; color:#6a8f6a; }
         .empty-state i { font-size:3rem; color:#dce8dc; display:block; margin-bottom:15px; }
-        
+
         /* ============================================ */
         /* PRINT - A4 PORTRAIT */
         /* ============================================ */
@@ -314,20 +382,20 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
             .topbar, .result-nav, .card, .btn, .no-print { 
                 display: none !important; 
             }
-            
+
             body { 
                 background: white; 
                 padding: 0; 
                 margin: 0;
                 font-size: 11px;
             }
-            
+
             .container { 
                 max-width: 100%; 
                 padding: 0;
                 margin: 0;
             }
-            
+
             .slip-pro { 
                 border: 2px solid #000; 
                 margin: 0; 
@@ -336,23 +404,23 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
                 min-height: 297mm;
                 box-sizing: border-box;
             }
-            
+
             .slip-pro::before { 
                 opacity: 0.08; 
             }
-            
+
             .pro-table { 
                 page-break-inside: avoid;
             }
-            
+
             .pro-table tr {
                 page-break-inside: avoid;
             }
-            
+
             .pro-header, .pro-title, .pro-info-wrapper, .pro-summary, .pro-bottom {
                 page-break-inside: avoid;
             }
-            
+
             @page { 
                 size: A4 portrait; 
                 margin: 0;
@@ -399,11 +467,11 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
                         <label>Student</label>
                         <select name="student_id" required>
                             <option value="">-- Select --</option>
-                            <?php while ($s = mysqli_fetch_assoc($students_list)): ?>
+                            <?php foreach ($students_list as $s): ?>
                                 <option value="<?php echo $s['id']; ?>" <?php echo ($student_id == $s['id']) ? 'selected' : ''; ?>>
                                     <?php echo htmlspecialchars($s['reg_no']); ?> — <?php echo htmlspecialchars($s['fullname']); ?>
                                 </option>
-                            <?php endwhile; ?>
+                            <?php endforeach; ?>
                         </select>
                     </div>
                     <div class="form-group">
@@ -423,6 +491,8 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
                             <option value="NCE I" <?php echo ($level=='NCE I')?'selected':''; ?>>NCE I</option>
                             <option value="NCE II" <?php echo ($level=='NCE II')?'selected':''; ?>>NCE II</option>
                             <option value="NCE III" <?php echo ($level=='NCE III')?'selected':''; ?>>NCE III</option>
+                            <option value="400 Level" <?php echo ($level=='400 Level')?'selected':''; ?>>400 Level</option>
+                            <option value="500 Level" <?php echo ($level=='500 Level')?'selected':''; ?>>500 Level</option>
                         </select>
                     </div>
                 </div>
@@ -441,10 +511,9 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
                class="btn btn-orange">
                 <i class="fas fa-file-csv"></i> Download CSV
             </a>
-            <a href="?student_id=<?php echo $student_id; ?>&session=<?php echo urlencode($session); ?>&semester=<?php echo urlencode($semester); ?>&level=<?php echo urlencode($level); ?>&download_pdf=1" 
-               class="btn btn-red" onclick="return confirm('Use Print dialog then Save as PDF')">
+            <button onclick="window.print()" class="btn btn-red">
                 <i class="fas fa-file-pdf"></i> Save as PDF
-            </a>
+            </button>
         </div>
         
         <div class="slip-pro">
@@ -479,9 +548,19 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
                     <div class="row"><span class="label">Level:</span><span class="value"><?php echo htmlspecialchars($level); ?></span></div>
                 </div>
             </div>
+
+            <!-- CARRY OVER ALERT -->
+            <?php if ($total_carryover > 0): ?>
+            <div class="carryover-alert">
+                <strong>⚠️ CARRY OVER: </strong>
+                Wannan dalibi yana da <strong><?php echo $total_carryover; ?></strong> 
+                course(s) da ya faɗi a baya kuma ba a sake ba. 
+                An nuna su a tebur ɗin da ke ƙasa da <strong>orange background</strong>.
+            </div>
+            <?php endif; ?>
             
             <!-- TABLE -->
-            <?php if (count($results) > 0): ?>
+            <?php if (count($results) > 0 || count($carryovers) > 0): ?>
             <table class="pro-table">
                 <thead>
                     <tr>
@@ -510,15 +589,47 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
                         </td>
                     </tr>
                     <?php endforeach; ?>
+
+                    <?php foreach ($carryovers as $r): 
+                        $is_fail = ($r['grade'] == 'F');
+                    ?>
+                    <tr class="carryover-row">
+                        <td class="center"><?php echo $i++; ?></td>
+                        <td>
+                            <strong><?php echo htmlspecialchars($r['course_code']); ?></strong>
+                            <span class="carryover-badge">Carry Over</span>
+                        </td>
+                        <td><?php echo htmlspecialchars($r['course_title']); ?></td>
+                        <td class="center"><?php echo $r['credit_units']; ?></td>
+                        <td class="center grade-<?php echo $r['grade']; ?>"><strong><?php echo $r['grade']; ?></strong></td>
+                        <td class="center"><?php echo number_format($r['grade_point'], 1); ?></td>
+                        <td class="center <?php echo $is_fail ? 'remark-fail' : 'remark-pass'; ?>">
+                            <?php echo $is_fail ? 'Fail' : 'Pass'; ?>
+                            <br><small style="color:#e65100;">(<?php echo htmlspecialchars($r['session']); ?>)</small>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
                 </tbody>
             </table>
             
             <!-- SUMMARY -->
             <div class="pro-summary">
-                <div class="box"><div class="value"><?php echo count($results); ?></div><div class="label">Courses</div></div>
-                <div class="box"><div class="value"><?php echo $total_units; ?></div><div class="label">Total Units</div></div>
-                <div class="box gpa"><div class="value"><?php echo number_format($gpa, 2); ?></div><div class="label">GPA (Semester)</div></div>
-                <div class="box cgpa"><div class="value"><?php echo number_format($cgpa, 2); ?></div><div class="label">CGPA (Cumulative)</div></div>
+                <div class="box">
+                    <div class="value"><?php echo count($results) + count($carryovers); ?></div>
+                    <div class="label">Courses</div>
+                </div>
+                <div class="box">
+                    <div class="value"><?php echo $total_units; ?></div>
+                    <div class="label">Total Units</div>
+                </div>
+                <div class="box gpa">
+                    <div class="value"><?php echo number_format($gpa, 2); ?></div>
+                    <div class="label">GPA (Semester)</div>
+                </div>
+                <div class="box cgpa">
+                    <div class="value"><?php echo number_format($cgpa, 2); ?></div>
+                    <div class="label">CGPA (Cumulative)</div>
+                </div>
             </div>
             
             <div style="text-align:center; margin-bottom:20px;">
@@ -536,8 +647,8 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
             </div>
             <?php endif; ?>
             
-            <!-- BOTTOM: QR + Registrar ONLY -->
-            <?php if (count($results) > 0): ?>
+            <!-- BOTTOM: QR + Registrar -->
+            <?php if (count($results) > 0 || count($carryovers) > 0): ?>
             <div class="pro-bottom">
                 <div class="qr-box">
                     <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=<?php echo urlencode('https://dala-portal.local/verify.php?reg_no=' . ($student['reg_no'] ?? $student['student_id'])); ?>" alt="QR">

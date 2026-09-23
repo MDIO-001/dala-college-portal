@@ -2,9 +2,12 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 session_start();
-include 'connect.php';
-include 'result_functions.php';
+require_once 'connect.php'; // Yana haɗa da $pdo da $conn
+require_once 'result_functions.php';
 
+// ============================================
+// TABBATAR DA SHIGA
+// ============================================
 if (!isset($_SESSION['user_id'])) {
     header('Location: login.php');
     exit();
@@ -23,142 +26,133 @@ $message = '';
 $message_type = '';
 
 $session_options = getSessionOptions();
-$current_session = getSetting($conn, 'current_session') ?? '2024/2025';
-$level_options = getLevelOptions();
+$current_session = getSetting($pdo, 'current_session') ?? '2026/2027';
+$level_options = getLevelOptions(); // ['NCE I', 'NCE II', 'NCE III', '400 Level', '500 Level']
+$semester_options = ['First Semester', 'Second Semester'];
 
 // ============================================
-// TANTANCE BAMBANCIN RUBUTUN LEVEL
+// LEVEL VARIANTS
 // ============================================
-/**
- * Ka dawo da duk ire-iren rubutun level da za a iya samu a
- * course_registrations domin a yi matching mai sassauci.
- */
-function getLevelVariants($level) {
-    $map = [
-        'NCE I'   => ['NCE I', 'NCEI', 'NCE 1', 'NCE1', '100'],
-        'NCE II'  => ['NCE II', 'NCEII', 'NCE 2', 'NCE2', '200'],
-        'NCE III' => ['NCE III', 'NCEIII', 'NCE 3', 'NCE3', '300'],
-        '400 Level' => ['400 Level', '400L', '400'],
-        '500 Level' => ['500 Level', '500L', '500'],
-    ];
-    return $map[$level] ?? [$level];
+if (!function_exists('getLevelVariants')) {
+    function getLevelVariants($level) {
+        $map = [
+            'NCE I'     => ['NCE I', 'NCEI', 'NCE 1', 'NCE1', '100'],
+            'NCE II'    => ['NCE II', 'NCEII', 'NCE 2', 'NCE2', '200'],
+            'NCE III'   => ['NCE III', 'NCEIII', 'NCE 3', 'NCE3', '300'],
+            '400 Level' => ['400 Level', '400L', '400'],
+            '500 Level' => ['500 Level', '500L', '500'],
+        ];
+        return $map[$level] ?? [$level];
+    }
 }
 
-/**
- * Gina SQL condition don level domin a yi matching da duk variants.
- */
-function buildLevelCondition($conn, $level, $column = 'cr.level') {
+if (!function_exists('buildLevelCondition')) {
+    function buildLevelCondition($level, $column = 'cr.level') {
+        $variants = getLevelVariants($level);
+        $placeholders = implode(',', array_fill(0, count($variants), '?'));
+        return "$column IN ($placeholders)";
+    }
+}
+
+// ============================================
+// SAMUN DALIBAI
+// ============================================
+function getRegisteredStudents($pdo, $combination, $level, $semester, $session) {
+    $level_sql = buildLevelCondition($level, 'cr.level');
     $variants = getLevelVariants($level);
-    $conds = [];
-    foreach ($variants as $v) {
-        $v = mysqli_real_escape_string($conn, $v);
-        $conds[] = "$column = '$v'";
-    }
-    return '(' . implode(' OR ', $conds) . ')';
+
+    $sql = "SELECT DISTINCT s.*, 
+                   s.admission_year, 
+                   s.programme_type,
+                   s.current_level,
+                   s.graduation_year
+            FROM students s
+            INNER JOIN course_registrations cr ON cr.student_id = s.id
+            WHERE (s.combination = ? OR s.course = ?)
+            AND $level_sql
+            AND cr.semester = ?
+            AND cr.academic_year = ?
+            AND cr.status IN ('registered', 'completed')
+            ORDER BY s.fullname";
+
+    $params = array_merge([$combination, $combination], $variants, [$semester, $session]);
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll();
 }
 
 // ============================================
-// SAMO DALIBAN DA SUKA YI REGISTRATION
+// SAMUN COURSES NA DALIBI ƊAYA
 // ============================================
-/**
- * Samo duk daliban da suka yi registration a wani level, semester, session.
- * Ana amfani da table course_registrations.
- */
-function getRegisteredStudents($conn, $combination, $level, $semester, $session, $programme = 'NCE') {
-    $students = [];
-    $combination = mysqli_real_escape_string($conn, $combination);
-    $level = mysqli_real_escape_string($conn, $level);
-    $semester = mysqli_real_escape_string($conn, $semester);
-    $session = mysqli_real_escape_string($conn, $session);
+function getRegisteredCourses($pdo, $student_id, $level, $semester, $session) {
+    $level_sql = buildLevelCondition($level, 'cr.level');
+    $variants = getLevelVariants($level);
 
-    $level_sql = buildLevelCondition($conn, $level, 'cr.level');
+    $sql = "SELECT cr.*, 
+                   COALESCE(c.credits, cr.credits, 0) AS course_credits,
+                   c.category,
+                   c.course_title AS course_title_from_courses
+            FROM course_registrations cr
+            LEFT JOIN courses c 
+                ON c.course_code = cr.course_code 
+                AND c.level = ?
+                AND c.semester = ?
+            WHERE cr.student_id = ?
+            AND $level_sql
+            AND cr.semester = ?
+            AND cr.academic_year = ?
+            AND cr.status IN ('registered', 'completed')
+            ORDER BY cr.course_code";
 
-    $q = mysqli_query($conn, "SELECT DISTINCT s.* 
-                              FROM students s
-                              INNER JOIN course_registrations cr ON cr.student_id = s.id
-                              WHERE (s.combination = '$combination' OR s.course = '$combination')
-                              AND $level_sql
-                              AND cr.semester = '$semester'
-                              AND cr.academic_year = '$session'
-                              AND cr.status IN ('registered', 'completed')
-                              ORDER BY s.fullname");
-    
-    if (!$q) {
-        die("SQL Error: " . mysqli_error($conn));
-    }
-    
-    while ($s = mysqli_fetch_assoc($q)) {
-        $students[] = $s;
-    }
-    return $students;
+    $params = array_merge([$level, $semester, $student_id], $variants, [$semester, $session]);
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll();
 }
 
-/**
- * Samo courses din da dalibi ya yi registration.
- */
-function getRegisteredCourses($conn, $student_id, $level, $semester, $session) {
-    $courses = [];
-    $student_id = intval($student_id);
-    $level = mysqli_real_escape_string($conn, $level);
-    $semester = mysqli_real_escape_string($conn, $semester);
-    $session = mysqli_real_escape_string($conn, $session);
+// ============================================
+// SAMUN DUK COURSES NA COMBINATION
+// ============================================
+function getAllRegisteredCourses($pdo, $combination, $level, $semester, $session) {
+    $level_sql = buildLevelCondition($level, 'cr.level');
+    $variants = getLevelVariants($level);
 
-    $level_sql = buildLevelCondition($conn, $level, 'level');
+    $sql = "SELECT DISTINCT cr.course_code, cr.course_title, 
+                   COALESCE(c.credits, cr.credits, 0) AS credits
+            FROM course_registrations cr
+            INNER JOIN students s ON s.id = cr.student_id
+            LEFT JOIN courses c ON c.course_code = cr.course_code 
+                AND c.level = ? 
+                AND c.semester = ?
+            WHERE (s.combination = ? OR s.course = ?)
+            AND $level_sql
+            AND cr.semester = ?
+            AND cr.academic_year = ?
+            AND cr.status IN ('registered', 'completed')
+            ORDER BY cr.course_code";
 
-    $q = mysqli_query($conn, "SELECT * FROM course_registrations 
-                              WHERE student_id = $student_id 
-                              AND $level_sql
-                              AND semester = '$semester' 
-                              AND academic_year = '$session'
-                              AND status IN ('registered', 'completed')
-                              ORDER BY course_code");
-    
-    while ($c = mysqli_fetch_assoc($q)) $courses[] = $c;
-    return $courses;
-}
-
-/**
- * Samo duk courses din da aka yi registration a wani level, semester, session
- * domin a yi amfani da su wajen download sheet.
- */
-function getAllRegisteredCourses($conn, $combination, $level, $semester, $session) {
-    $courses = [];
-    $combination = mysqli_real_escape_string($conn, $combination);
-    $level = mysqli_real_escape_string($conn, $level);
-    $semester = mysqli_real_escape_string($conn, $semester);
-    $session = mysqli_real_escape_string($conn, $session);
-
-    $level_sql = buildLevelCondition($conn, $level, 'cr.level');
-
-    $q = mysqli_query($conn, "SELECT DISTINCT cr.course_code, cr.course_title, cr.credits
-                              FROM course_registrations cr
-                              INNER JOIN students s ON s.id = cr.student_id
-                              WHERE (s.combination = '$combination' OR s.course = '$combination')
-                              AND $level_sql
-                              AND cr.semester = '$semester'
-                              AND cr.academic_year = '$session'
-                              AND cr.status IN ('registered', 'completed')
-                              ORDER BY cr.course_code");
-    while ($c = mysqli_fetch_assoc($q)) $courses[] = $c;
-    return $courses;
+    $params = array_merge([$level, $semester, $combination, $combination], $variants, [$semester, $session]);
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll();
 }
 
 // ============================================
 // DOWNLOAD ALL COURSES SHEET
 // ============================================
 if (isset($_GET['download_sheet'])) {
-    $combination = mysqli_real_escape_string($conn, $_GET['combination'] ?? '');
-    $level = mysqli_real_escape_string($conn, $_GET['level'] ?? '');
-    $semester = mysqli_real_escape_string($conn, $_GET['semester'] ?? '');
-    $session = mysqli_real_escape_string($conn, $_GET['session'] ?? $current_session);
+    $combination = $_GET['combination'] ?? '';
+    $level = $_GET['level'] ?? '';
+    $semester = $_GET['semester'] ?? '';
+    $session = $_GET['session'] ?? $current_session;
 
     if (empty($combination) || empty($level) || empty($semester)) {
         header('Location: admin_result_entry.php');
         exit();
     }
 
-    $students = getRegisteredStudents($conn, $combination, $level, $semester, $session);
-    $courses = getAllRegisteredCourses($conn, $combination, $level, $semester, $session);
+    $students = getRegisteredStudents($pdo, $combination, $level, $semester, $session);
+    $courses = getAllRegisteredCourses($pdo, $combination, $level, $semester, $session);
 
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="result_sheet_' . str_replace('/', '_', $combination) . '_' . str_replace(' ', '_', $level) . '_' . str_replace('/', '_', $session) . '.csv"');
@@ -176,18 +170,11 @@ if (isset($_GET['download_sheet'])) {
     foreach ($courses as $c) $header[] = $c['course_code'] . ' (' . $c['credits'] . ')';
     fputcsv($output, $header);
 
-    $count = 0;
     foreach ($students as $s) {
-        $count++;
         $row = [$s['reg_no'] ?? $s['student_id'], $s['fullname']];
         foreach ($courses as $c) $row[] = '';
         fputcsv($output, $row);
     }
-
-    if ($count == 0) {
-        fputcsv($output, ['No students found for this combination, level and session']);
-    }
-
     fclose($output);
     exit();
 }
@@ -196,33 +183,34 @@ if (isset($_GET['download_sheet'])) {
 // DOWNLOAD SINGLE COURSE SHEET
 // ============================================
 if (isset($_GET['download_single'])) {
-    $combination = mysqli_real_escape_string($conn, $_GET['combination'] ?? '');
-    $level = mysqli_real_escape_string($conn, $_GET['level'] ?? '');
-    $semester = mysqli_real_escape_string($conn, $_GET['semester'] ?? '');
-    $session = mysqli_real_escape_string($conn, $_GET['session'] ?? $current_session);
-    $course_code = strtoupper(mysqli_real_escape_string($conn, $_GET['course_code'] ?? ''));
+    $combination = $_GET['combination'] ?? '';
+    $level = $_GET['level'] ?? '';
+    $semester = $_GET['semester'] ?? '';
+    $session = $_GET['session'] ?? $current_session;
+    $course_code = strtoupper($_GET['course_code'] ?? '');
 
     if (empty($combination) || empty($level) || empty($semester) || empty($course_code)) {
         header('Location: admin_result_entry.php');
         exit();
     }
 
-    // Nemo course daga course_registrations da farko
-    $level_sql = buildLevelCondition($conn, $level, 'level');
-    $course = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM course_registrations 
-                                                       WHERE course_code = '$course_code' 
-                                                       AND $level_sql
-                                                       AND semester = '$semester' 
-                                                       LIMIT 1"));
+    $level_sql = buildLevelCondition($level, 'level');
+    $variants = getLevelVariants($level);
+
+    $sql = "SELECT * FROM course_registrations 
+            WHERE course_code = ? 
+            AND $level_sql
+            AND semester = ? 
+            LIMIT 1";
+    $params = array_merge([$course_code], $variants, [$semester]);
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $course = $stmt->fetch();
 
     if (!$course) {
-        // Duba courses table
-        $course = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM courses 
-                                                           WHERE course_code = '$course_code' 
-                                                           AND combination = '$combination' 
-                                                           AND level = '$level' 
-                                                           AND semester = '$semester' 
-                                                           LIMIT 1"));
+        $stmt = $pdo->prepare("SELECT * FROM courses WHERE course_code = ? AND level = ? AND semester = ? LIMIT 1");
+        $stmt->execute([$course_code, $level, $semester]);
+        $course = $stmt->fetch();
     }
 
     if (!$course) {
@@ -230,7 +218,7 @@ if (isset($_GET['download_single'])) {
         exit();
     }
 
-    $students = getRegisteredStudents($conn, $combination, $level, $semester, $session);
+    $students = getRegisteredStudents($pdo, $combination, $level, $semester, $session);
 
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="single_' . $course_code . '_' . str_replace('/', '_', $session) . '.csv"');
@@ -245,105 +233,245 @@ if (isset($_GET['download_single'])) {
     fputcsv($output, ['Course:', $course_code . ' - ' . $course['course_title']]);
     fputcsv($output, ['Units:', $course['credits'] ?? $course['credit_units']]);
     fputcsv($output, []);
-
     fputcsv($output, ['Reg No', 'Student Name', $course_code . ' (' . ($course['credits'] ?? $course['credit_units']) . ')']);
 
-    $count = 0;
     foreach ($students as $s) {
-        $count++;
         fputcsv($output, [$s['reg_no'] ?? $s['student_id'], $s['fullname'], '']);
     }
-
-    if ($count == 0) {
-        fputcsv($output, ['No students found']);
-    }
-
     fclose($output);
     exit();
 }
 
 // ============================================
-// SINGLE ENTRY - SAVE
+// SAVE: SINGLE STUDENT
 // ============================================
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_single'])) {
     $student_id = intval($_POST['student_id']);
-    $session = mysqli_real_escape_string($conn, $_POST['session']);
-    $level = mysqli_real_escape_string($conn, $_POST['level']);
-    $semester = mysqli_real_escape_string($conn, $_POST['semester']);
-    $combination = mysqli_real_escape_string($conn, $_POST['combination']);
+    $session = $_POST['session'];
+    $level = $_POST['level'];
+    $semester = $_POST['semester'];
+    $combination = $_POST['combination'];
 
-    $s = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM students WHERE id = $student_id"));
+    $stmt = $pdo->prepare("SELECT * FROM students WHERE id = ?");
+    $stmt->execute([$student_id]);
+    $s = $stmt->fetch();
 
     $saved = 0;
+
     if (isset($_POST['scores']) && is_array($_POST['scores'])) {
         foreach ($_POST['scores'] as $course_code => $score) {
             if ($score === '' || $score === null) continue;
             $score = intval($score);
             if ($score < 0 || $score > 100) continue;
 
-            $course_code = mysqli_real_escape_string($conn, $course_code);
+            $level_sql = buildLevelCondition($level, 'level');
+            $variants = getLevelVariants($level);
 
-            // Nemo course daga course_registrations
-            $level_sql = buildLevelCondition($conn, $level, 'level');
-            $cq = mysqli_query($conn, "SELECT * FROM course_registrations 
-                                       WHERE course_code = '$course_code' 
-                                       AND student_id = $student_id 
-                                       AND $level_sql
-                                       AND semester = '$semester' 
-                                       AND academic_year = '$session'
-                                       LIMIT 1");
-            $course = mysqli_fetch_assoc($cq);
+            $sql = "SELECT * FROM course_registrations 
+                    WHERE course_code = ? 
+                    AND student_id = ? 
+                    AND $level_sql
+                    AND semester = ? 
+                    AND academic_year = ?
+                    LIMIT 1";
+            $params = array_merge([$course_code, $student_id], $variants, [$semester, $session]);
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            $course = $stmt->fetch();
 
             if (!$course) {
-                $cq2 = mysqli_query($conn, "SELECT * FROM courses WHERE course_code = '$course_code' AND level = '$level' LIMIT 1");
-                $course = mysqli_fetch_assoc($cq2);
+                $stmt = $pdo->prepare("SELECT * FROM courses WHERE course_code = ? AND level = ? LIMIT 1");
+                $stmt->execute([$course_code, $level]);
+                $course = $stmt->fetch();
             }
 
             if (!$course) continue;
 
             $course_title = $course['course_title'];
             $credits = $course['credits'] ?? $course['credit_units'] ?? 0;
+            $g = getGrade($pdo, $score);
 
-            $g = getGrade($conn, $score);
+            $check = $pdo->prepare("SELECT id FROM results 
+                                    WHERE student_id = ? 
+                                    AND course_code = ? 
+                                    AND level = ? 
+                                    AND semester = ? 
+                                    AND session = ?");
+            $check->execute([$student_id, $course_code, $level, $semester, $session]);
 
-            $check = mysqli_query($conn, "SELECT id FROM results 
-                                          WHERE student_id = $student_id 
-                                          AND course_code = '$course_code' 
-                                          AND level = '$level' 
-                                          AND semester = '$semester' 
-                                          AND session = '$session'");
-
-            if (mysqli_num_rows($check) > 0) {
-                $update = "UPDATE results SET 
-                    score = $score, grade = '{$g['grade']}', 
-                    grade_point = {$g['grade_point']}, remark = '{$g['remark']}', 
-                    credit_units = $credits
-                    WHERE student_id = $student_id 
-                    AND course_code = '$course_code' 
-                    AND level = '$level' 
-                    AND semester = '$semester' 
-                    AND session = '$session'";
-                if (mysqli_query($conn, $update)) $saved++;
+            if ($check->rowCount() > 0) {
+                $update = $pdo->prepare("UPDATE results SET 
+                    score = ?, grade = ?, grade_point = ?, remark = ?, credit_units = ?
+                    WHERE student_id = ? AND course_code = ? AND level = ? AND semester = ? AND session = ?");
+                $update->execute([$score, $g['grade'], $g['grade_point'], $g['remark'], $credits, $student_id, $course_code, $level, $semester, $session]);
+                $saved++;
             } else {
-                $insert = "INSERT INTO results (student_id, reg_no, student_name, course_code, course_title, credit_units, score, grade, grade_point, remark, level, semester, session, combination, entered_by) 
-                           VALUES ($student_id, '{$s['reg_no']}', '{$s['fullname']}', '$course_code', '$course_title', $credits, $score, '{$g['grade']}', {$g['grade_point']}, '{$g['remark']}', '$level', '$semester', '$session', '$combination', {$_SESSION['user_id']})";
-                if (mysqli_query($conn, $insert)) $saved++;
+                $insert = $pdo->prepare("INSERT INTO results 
+                    (student_id, reg_no, student_name, course_code, course_title, credit_units, score, grade, grade_point, remark, level, semester, session, combination, entered_by) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $insert->execute([
+                    $student_id, $s['reg_no'], $s['fullname'], $course_code, $course_title, 
+                    $credits, $score, $g['grade'], $g['grade_point'], $g['remark'], 
+                    $level, $semester, $session, $combination, $_SESSION['user_id']
+                ]);
+                $saved++;
             }
         }
     }
 
-    $message = "✅ Saved <strong>$saved</strong> result(s) for $level — $session!";
+    $message = "✅ An adana <strong>$saved</strong> result(s) na <strong>$level — $semester — $session</strong>!";
     $message_type = 'success';
 }
 
 // ============================================
-// BULK UPLOAD
+// SAVE: SINGLE COURSE
+// ============================================
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_single_course'])) {
+    $course_code = strtoupper($_POST['course_code'] ?? '');
+    $session = $_POST['session'];
+    $level = $_POST['level'];
+    $semester = $_POST['semester'];
+    $combination = $_POST['combination'];
+
+    $saved = 0;
+    $updated = 0;
+
+    if ($course_code && isset($_POST['student_scores']) && is_array($_POST['student_scores'])) {
+        $stmt = $pdo->prepare("SELECT * FROM courses WHERE course_code = ? AND level = ? AND semester = ? LIMIT 1");
+        $stmt->execute([$course_code, $level, $semester]);
+        $course = $stmt->fetch();
+
+        $course_title = $course['course_title'] ?? $course_code;
+        $credits = $course['credits'] ?? $course['credit_units'] ?? 0;
+
+        foreach ($_POST['student_scores'] as $student_id => $score) {
+            if ($score === '' || $score === null) continue;
+            $score = intval($score);
+            if ($score < 0 || $score > 100) continue;
+            $student_id = intval($student_id);
+
+            $stmt = $pdo->prepare("SELECT * FROM students WHERE id = ?");
+            $stmt->execute([$student_id]);
+            $s = $stmt->fetch();
+            if (!$s) continue;
+
+            $g = getGrade($pdo, $score);
+
+            $check = $pdo->prepare("SELECT id FROM results 
+                                    WHERE student_id = ? 
+                                    AND course_code = ? 
+                                    AND level = ? 
+                                    AND semester = ? 
+                                    AND session = ?");
+            $check->execute([$student_id, $course_code, $level, $semester, $session]);
+
+            if ($check->rowCount() > 0) {
+                $update = $pdo->prepare("UPDATE results SET 
+                    score = ?, grade = ?, grade_point = ?, remark = ?, credit_units = ?
+                    WHERE student_id = ? AND course_code = ? AND level = ? AND semester = ? AND session = ?");
+                $update->execute([$score, $g['grade'], $g['grade_point'], $g['remark'], $credits, $student_id, $course_code, $level, $semester, $session]);
+                $updated++;
+            } else {
+                $insert = $pdo->prepare("INSERT INTO results 
+                    (student_id, reg_no, student_name, course_code, course_title, credit_units, score, grade, grade_point, remark, level, semester, session, combination, entered_by) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $insert->execute([
+                    $student_id, $s['reg_no'], $s['fullname'], $course_code, $course_title, 
+                    $credits, $score, $g['grade'], $g['grade_point'], $g['remark'], 
+                    $level, $semester, $session, $combination, $_SESSION['user_id']
+                ]);
+                $saved++;
+            }
+        }
+    }
+
+    $message = "✅ An adana <strong>$saved</strong> sabbin, an sabunta <strong>$updated</strong> na <strong>$course_code</strong> ($level — $semester — $session)!";
+    $message_type = 'success';
+}
+
+// ============================================
+// SAVE: COMPLETE COMBINATION
+// ============================================
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_complete'])) {
+    $session = $_POST['session'];
+    $level = $_POST['level'];
+    $semester = $_POST['semester'];
+    $combination = $_POST['combination'];
+
+    $saved = 0;
+    $updated = 0;
+
+    if (isset($_POST['combination_scores']) && is_array($_POST['combination_scores'])) {
+        $courses_data = getAllRegisteredCourses($pdo, $combination, $level, $semester, $session);
+        $course_map = [];
+        foreach ($courses_data as $c) {
+            $course_map[$c['course_code']] = [
+                'title' => $c['course_title'],
+                'credits' => $c['credits']
+            ];
+        }
+
+        foreach ($_POST['combination_scores'] as $student_id => $scores) {
+            $student_id = intval($student_id);
+            if (!is_array($scores)) continue;
+
+            $stmt = $pdo->prepare("SELECT * FROM students WHERE id = ?");
+            $stmt->execute([$student_id]);
+            $s = $stmt->fetch();
+            if (!$s) continue;
+
+            foreach ($scores as $course_code => $score) {
+                if ($score === '' || $score === null) continue;
+                $score = intval($score);
+                if ($score < 0 || $score > 100) continue;
+
+                $course_code = strtoupper($course_code);
+                $course_title = $course_map[$course_code]['title'] ?? $course_code;
+                $credits = $course_map[$course_code]['credits'] ?? 0;
+
+                $g = getGrade($pdo, $score);
+
+                $check = $pdo->prepare("SELECT id FROM results 
+                                        WHERE student_id = ? 
+                                        AND course_code = ? 
+                                        AND level = ? 
+                                        AND semester = ? 
+                                        AND session = ?");
+                $check->execute([$student_id, $course_code, $level, $semester, $session]);
+
+                if ($check->rowCount() > 0) {
+                    $update = $pdo->prepare("UPDATE results SET 
+                        score = ?, grade = ?, grade_point = ?, remark = ?, credit_units = ?
+                        WHERE student_id = ? AND course_code = ? AND level = ? AND semester = ? AND session = ?");
+                    $update->execute([$score, $g['grade'], $g['grade_point'], $g['remark'], $credits, $student_id, $course_code, $level, $semester, $session]);
+                    $updated++;
+                } else {
+                    $insert = $pdo->prepare("INSERT INTO results 
+                        (student_id, reg_no, student_name, course_code, course_title, credit_units, score, grade, grade_point, remark, level, semester, session, combination, entered_by) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $insert->execute([
+                        $student_id, $s['reg_no'], $s['fullname'], $course_code, $course_title, 
+                        $credits, $score, $g['grade'], $g['grade_point'], $g['remark'], 
+                        $level, $semester, $session, $combination, $_SESSION['user_id']
+                    ]);
+                    $saved++;
+                }
+            }
+        }
+    }
+
+    $message = "✅ Complete Combination: An adana <strong>$saved</strong> sabbin, an sabunta <strong>$updated</strong> ($level — $semester — $session)!";
+    $message_type = 'success';
+}
+
+// ============================================
+// BULK UPLOAD (CSV)
 // ============================================
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['upload_sheet'])) {
-    $combination = mysqli_real_escape_string($conn, $_POST['combination']);
-    $level = mysqli_real_escape_string($conn, $_POST['level']);
-    $semester = mysqli_real_escape_string($conn, $_POST['semester']);
-    $session = mysqli_real_escape_string($conn, $_POST['session']);
+    $combination = $_POST['combination'];
+    $level = $_POST['level'];
+    $semester = $_POST['semester'];
+    $session = $_POST['session'];
 
     if (isset($_FILES['sheet_file']) && $_FILES['sheet_file']['error'] == 0) {
         $file_tmp = $_FILES['sheet_file']['tmp_name'];
@@ -354,7 +482,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['upload_sheet'])) {
             $message_type = 'error';
         } else {
             $file = fopen($file_tmp, 'r');
-
             $first_row = fgetcsv($file);
             $is_single = (strpos($first_row[0], 'SINGLE') !== false);
 
@@ -380,8 +507,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['upload_sheet'])) {
                 $reg_no = trim($row[0] ?? '');
                 if (empty($reg_no)) continue;
 
-                $sq = mysqli_query($conn, "SELECT * FROM students WHERE reg_no = '$reg_no' OR student_id = '$reg_no' LIMIT 1");
-                $student = mysqli_fetch_assoc($sq);
+                $stmt = $pdo->prepare("SELECT * FROM students WHERE reg_no = ? OR student_id = ? LIMIT 1");
+                $stmt->execute([$reg_no, $reg_no]);
+                $student = $stmt->fetch();
+
                 if (!$student) {
                     $errors[] = "Row $row_num: Student $reg_no not found";
                     continue;
@@ -393,43 +522,56 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['upload_sheet'])) {
                     $score = intval($score);
                     if ($score < 0 || $score > 100) continue;
 
-                    $course_code = mysqli_real_escape_string($conn, $courses[$i]);
+                    $course_code = $courses[$i];
+                    $level_sql = buildLevelCondition($level, 'level');
+                    $variants = getLevelVariants($level);
 
-                    $level_sql = buildLevelCondition($conn, $level, 'level');
-                    $cq = mysqli_query($conn, "SELECT * FROM course_registrations 
-                                               WHERE course_code = '$course_code' 
-                                               AND student_id = {$student['id']} 
-                                               AND $level_sql
-                                               AND semester = '$semester' 
-                                               AND academic_year = '$session'
-                                               LIMIT 1");
-                    $course = mysqli_fetch_assoc($cq);
+                    $sql = "SELECT * FROM course_registrations 
+                            WHERE course_code = ? 
+                            AND student_id = ? 
+                            AND $level_sql
+                            AND semester = ? 
+                            AND academic_year = ?
+                            LIMIT 1";
+                    $params = array_merge([$course_code, $student['id']], $variants, [$semester, $session]);
+                    $stmt = $pdo->prepare($sql);
+                    $stmt->execute($params);
+                    $course = $stmt->fetch();
 
                     if (!$course) {
-                        $cq2 = mysqli_query($conn, "SELECT * FROM courses WHERE course_code = '$course_code' AND level = '$level' LIMIT 1");
-                        $course = mysqli_fetch_assoc($cq2);
+                        $stmt = $pdo->prepare("SELECT * FROM courses WHERE course_code = ? AND level = ? LIMIT 1");
+                        $stmt->execute([$course_code, $level]);
+                        $course = $stmt->fetch();
                     }
 
                     if (!$course) continue;
 
                     $credits = $course['credits'] ?? $course['credit_units'] ?? 0;
-                    $g = getGrade($conn, $score);
+                    $g = getGrade($pdo, $score);
 
-                    $check = mysqli_query($conn, "SELECT id FROM results 
-                                                  WHERE student_id = {$student['id']} 
-                                                  AND course_code = '$course_code' 
-                                                  AND level = '$level' 
-                                                  AND semester = '$semester' 
-                                                  AND session = '$session'");
+                    $check = $pdo->prepare("SELECT id FROM results 
+                                            WHERE student_id = ? 
+                                            AND course_code = ? 
+                                            AND level = ? 
+                                            AND semester = ? 
+                                            AND session = ?");
+                    $check->execute([$student['id'], $course_code, $level, $semester, $session]);
 
-                    if (mysqli_num_rows($check) > 0) {
-                        $update = "UPDATE results SET score = $score, grade = '{$g['grade']}', grade_point = {$g['grade_point']}, remark = '{$g['remark']}' 
-                                   WHERE student_id = {$student['id']} AND course_code = '$course_code' AND level = '$level' AND semester = '$semester' AND session = '$session'";
-                        if (mysqli_query($conn, $update)) $updated++;
+                    if ($check->rowCount() > 0) {
+                        $update = $pdo->prepare("UPDATE results SET score = ?, grade = ?, grade_point = ?, remark = ? 
+                                   WHERE student_id = ? AND course_code = ? AND level = ? AND semester = ? AND session = ?");
+                        $update->execute([$score, $g['grade'], $g['grade_point'], $g['remark'], $student['id'], $course_code, $level, $semester, $session]);
+                        $updated++;
                     } else {
-                        $insert = "INSERT INTO results (student_id, reg_no, student_name, course_code, course_title, credit_units, score, grade, grade_point, remark, level, semester, session, combination, entered_by) 
-                                   VALUES ({$student['id']}, '{$student['reg_no']}', '{$student['fullname']}', '$course_code', '{$course['course_title']}', $credits, $score, '{$g['grade']}', {$g['grade_point']}, '{$g['remark']}', '$level', '$semester', '$session', '$combination', {$_SESSION['user_id']})";
-                        if (mysqli_query($conn, $insert)) $saved++;
+                        $insert = $pdo->prepare("INSERT INTO results 
+                            (student_id, reg_no, student_name, course_code, course_title, credit_units, score, grade, grade_point, remark, level, semester, session, combination, entered_by) 
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                        $insert->execute([
+                            $student['id'], $student['reg_no'], $student['fullname'], $course_code, $course['course_title'], 
+                            $credits, $score, $g['grade'], $g['grade_point'], $g['remark'], 
+                            $level, $semester, $session, $combination, $_SESSION['user_id']
+                        ]);
+                        $saved++;
                     }
                 }
             }
@@ -437,11 +579,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['upload_sheet'])) {
 
             $total = $saved + $updated;
             if ($total > 0) {
-                $message = "✅ Results imported for $level — $session!<br>📊 New: <strong>$saved</strong> | 🔄 Updated: <strong>$updated</strong>";
-                if (!empty($errors)) $message .= "<br>⚠️ Errors: " . count($errors);
+                $message = "✅ An shigo da results na $level — $session!<br>📊 Sabbi: <strong>$saved</strong> | 🔄 Sabuntawa: <strong>$updated</strong>";
+                if (!empty($errors)) $message .= "<br>⚠️ Kuskure: " . count($errors);
                 $message_type = 'success';
             } else {
-                $message = "❌ No results imported.";
+                $message = "❌ Babu result da aka shigo da shi.";
                 if (!empty($errors)) $message .= "<br>" . implode('<br>', array_slice($errors, 0, 5));
                 $message_type = 'error';
             }
@@ -449,114 +591,172 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['upload_sheet'])) {
     }
 }
 
+// ============================================
+// SAMO COMBINATIONS
+// ============================================
 $combinations_list = [];
-$cq = mysqli_query($conn, "SELECT DISTINCT combination FROM courses WHERE combination IS NOT NULL AND combination != '' ORDER BY combination");
-while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
+$stmt = $pdo->query("SELECT DISTINCT combination FROM students WHERE combination IS NOT NULL AND combination != '' ORDER BY combination");
+while ($c = $stmt->fetch()) $combinations_list[] = $c['combination'];
+
+// Idan babu a students, duba courses
+if (empty($combinations_list)) {
+    $stmt = $pdo->query("SELECT DISTINCT combination FROM courses WHERE combination IS NOT NULL AND combination != '' ORDER BY combination");
+    while ($c = $stmt->fetch()) $combinations_list[] = $c['combination'];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Result Entry - Admin</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        :root {
+            --primary: #0d2818;
+            --secondary: #2e7d32;
+            --accent: #ffd54f;
+            --danger: #c62828;
+            --bg: #f0f4f8;
+            --card: #ffffff;
+            --text: #1a2e1a;
+            --text-muted: #6a8f6a;
+            --border: #dce8dc;
+        }
         * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family:'Segoe UI',Tahoma,sans-serif; background:#f0f4f8; padding:20px; }
-        .container { max-width:1300px; margin:0 auto; }
+        body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); padding:20px; color:var(--text); }
+        .container { max-width:1500px; margin:0 auto; }
 
-        .topbar { background:#0d2818; padding:15px 25px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; border-radius:12px; margin-bottom:20px; }
-        .topbar .logo-title { color:#ffd54f; font-size:1.3rem; font-weight:800; }
+        .topbar {
+            background:var(--primary); padding:15px 25px; display:flex;
+            justify-content:space-between; align-items:center; flex-wrap:wrap;
+            border-radius:12px; margin-bottom:20px;
+        }
+        .topbar .logo-title { color:var(--accent); font-size:1.3rem; font-weight:800; }
         .topbar .logo-title span { color:#a5d6a7; }
         .topbar .logo-sub { display:block; font-size:0.55rem; color:#c8e6c9; }
         .topbar nav a { color:#c8e6c9; text-decoration:none; padding:8px 16px; border-radius:25px; font-size:0.85rem; }
-        .topbar nav a:hover { background:#2e7d32; }
-        .topbar nav .logout { background:#c62828; color:white !important; }
-        .topbar .admin-badge { background:#c62828; color:white; padding:6px 18px; border-radius:20px; font-size:0.8rem; font-weight:600; }
+        .topbar nav a:hover { background:var(--secondary); }
+        .topbar nav .logout { background:var(--danger); color:white !important; }
+        .topbar .admin-badge { background:var(--danger); color:white; padding:6px 18px; border-radius:20px; font-size:0.8rem; font-weight:600; }
 
-        .result-nav { background:white; padding:15px; border-radius:12px; margin-bottom:20px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; box-shadow:0 2px 10px rgba(0,0,0,0.05); }
-        .result-nav .label { font-weight:700; color:#0d2818; margin-right:10px; font-size:0.85rem; }
+        .result-nav {
+            background:white; padding:15px; border-radius:12px; margin-bottom:20px;
+            display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+            box-shadow:0 2px 10px rgba(0,0,0,0.05);
+        }
+        .result-nav .label { font-weight:700; color:var(--primary); margin-right:10px; font-size:0.85rem; }
         .result-nav a { padding:8px 15px; border-radius:6px; text-decoration:none; font-weight:600; font-size:0.75rem; }
-        .r-course { background:#2e7d32; color:white; }
-        .r-grade { background:#f9a825; color:#0d2818; }
-        .r-entry { background:#8d2c2c; color:white; box-shadow:0 0 0 3px #ffd54f; }
+        .r-course { background:var(--secondary); color:white; }
+        .r-grade { background:#f9a825; color:var(--primary); }
+        .r-entry { background:#8d2c2c; color:white; box-shadow:0 0 0 3px var(--accent); }
         .r-slip { background:#e53935; color:white; }
-        .r-slip-pro { background:#a5d6a7; color:#0d2818; }
+        .r-slip-pro { background:#a5d6a7; color:var(--primary); }
         .r-transcript { background:#5d4037; color:white; }
         .r-final { background:#558b2f; color:white; }
         .r-settings { background:#e65100; color:white; }
         .r-database { background:#37474f; color:white; }
         .r-statement { background:#455a64; color:white; }
 
-        .card { background:white; padding:25px; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,0.05); margin-bottom:20px; }
-        .card h2 { color:#0d2818; margin-bottom:15px; font-size:1.2rem; }
+        .card { background:var(--card); padding:25px; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,0.05); margin-bottom:20px; }
+        .card h2 { color:var(--primary); margin-bottom:15px; font-size:1.2rem; }
 
         .message { padding:12px 20px; border-radius:8px; margin-bottom:15px; font-weight:600; }
-        .message.success { background:#e8f5e9; color:#2e7d32; border-left:4px solid #2e7d32; }
-        .message.error { background:#ffebee; color:#c62828; border-left:4px solid #c62828; }
+        .message.success { background:#e8f5e9; color:var(--secondary); border-left:4px solid var(--secondary); }
+        .message.error { background:#ffebee; color:var(--danger); border-left:4px solid var(--danger); }
 
-        .tabs { display:flex; gap:5px; margin-bottom:20px; border-bottom:2px solid #e0ebe0; }
-        .tab-btn { padding:12px 25px; background:transparent; border:none; font-weight:700; font-size:0.9rem; cursor:pointer; color:#6a8f6a; border-bottom:3px solid transparent; }
-        .tab-btn.active { color:#2e7d32; border-bottom-color:#2e7d32; }
+        .tabs { display:flex; gap:5px; margin-bottom:20px; border-bottom:2px solid #e0ebe0; flex-wrap:wrap; }
+        .tab-btn {
+            padding:12px 25px; background:transparent; border:none; font-weight:700;
+            font-size:0.85rem; cursor:pointer; color:var(--text-muted);
+            border-bottom:3px solid transparent;
+        }
+        .tab-btn.active { color:var(--secondary); border-bottom-color:var(--secondary); }
         .tab-content { display:none; }
         .tab-content.active { display:block; }
 
         .form-row { display:grid; grid-template-columns:repeat(4,1fr); gap:15px; margin-bottom:15px; }
         .form-row.col1 { grid-template-columns:1fr; }
-        .form-group label { display:block; font-weight:600; color:#1a2e1a; margin-bottom:5px; font-size:0.85rem; }
-        .form-group input, .form-group select { width:100%; padding:10px; border:2px solid #dce8dc; border-radius:8px; font-size:0.9rem; }
-        .form-group input:focus, .form-group select:focus { border-color:#2e7d32; outline:none; }
+        .form-group label { display:block; font-weight:600; color:var(--text); margin-bottom:5px; font-size:0.85rem; }
+        .form-group input, .form-group select {
+            width:100%; padding:10px; border:2px solid var(--border);
+            border-radius:8px; font-size:0.9rem;
+        }
+        .form-group input:focus, .form-group select:focus { border-color:var(--secondary); outline:none; }
 
-        .btn { padding:10px 25px; border:none; border-radius:8px; font-weight:700; font-size:0.9rem; cursor:pointer; text-decoration:none; display:inline-block; }
-        .btn-green { background:#2e7d32; color:white; }
+        .btn {
+            padding:10px 25px; border:none; border-radius:8px; font-weight:700;
+            font-size:0.9rem; cursor:pointer; text-decoration:none; display:inline-block;
+        }
+        .btn-green { background:var(--secondary); color:white; }
         .btn-green:hover { background:#1b5e20; }
         .btn-blue { background:#1976d2; color:white; }
         .btn-blue:hover { background:#0d47a1; }
         .btn-orange { background:#f57c00; color:white; }
         .btn-orange:hover { background:#e65100; }
+        .btn-red { background:var(--danger); color:white; }
 
-        .score-input { width:80px; padding:8px; border:2px solid #dce8dc; border-radius:6px; text-align:center; font-weight:700; font-size:0.95rem; }
-        .score-input:focus { border-color:#2e7d32; outline:none; }
+        .score-input {
+            width:75px; padding:8px; border:2px solid var(--border);
+            border-radius:6px; text-align:center; font-weight:700; font-size:0.9rem;
+        }
+        .score-input:focus { border-color:var(--secondary); outline:none; }
 
         .result-table { width:100%; border-collapse:collapse; margin-bottom:15px; }
-        .result-table th { background:#0d2818; color:white; padding:10px; text-align:left; font-size:0.8rem; }
-        .result-table td { padding:10px; border-bottom:1px solid #eee; font-size:0.9rem; }
+        .result-table th {
+            background:var(--primary); color:white; padding:10px;
+            text-align:left; font-size:0.75rem;
+        }
+        .result-table td { padding:8px; border-bottom:1px solid #eee; font-size:0.85rem; }
         .result-table tr:hover td { background:#f8faf8; }
         .result-table .center { text-align:center; }
 
-        .grade-badge { padding:4px 12px; border-radius:15px; font-weight:700; font-size:0.85rem; }
-        .grade-A { background:#e8f5e9; color:#2e7d32; }
+        .grade-badge { padding:3px 10px; border-radius:12px; font-weight:700; font-size:0.8rem; }
+        .grade-A { background:#e8f5e9; color:var(--secondary); }
         .grade-B { background:#e3f2fd; color:#0d47a1; }
         .grade-C { background:#fff3e0; color:#e65100; }
         .grade-D { background:#f3e5f5; color:#6a1b9a; }
         .grade-E { background:#fce4ec; color:#c2185b; }
-        .grade-F { background:#ffebee; color:#c62828; }
+        .grade-F { background:#ffebee; color:var(--danger); }
 
-        .student-info-box { background:linear-gradient(135deg, #e8f5e9, #c8e6c9); padding:20px; border-radius:10px; margin-bottom:20px; border-left:5px solid #2e7d32; }
-        .student-info-box h3 { color:#0d2818; margin-bottom:10px; }
-        .student-info-box p { color:#1a2e1a; margin:5px 0; font-size:0.9rem; }
-
-        .carryover-box { background:#ffebee; padding:20px; border-radius:10px; margin-bottom:20px; border-left:5px solid #c62828; }
-        .carryover-box h3 { color:#c62828; margin-bottom:15px; }
+        .student-info-box {
+            background:linear-gradient(135deg, #e8f5e9, #c8e6c9);
+            padding:20px; border-radius:10px; margin-bottom:20px;
+            border-left:5px solid var(--secondary);
+        }
+        .student-info-box h3 { color:var(--primary); margin-bottom:10px; }
+        .student-info-box p { color:var(--text); margin:5px 0; font-size:0.9rem; }
 
         .total-summary { display:grid; grid-template-columns:repeat(3, 1fr); gap:15px; margin-top:20px; margin-bottom:15px; }
-        .total-summary .summary-box { border:2px solid #0d2818; padding:15px; text-align:center; border-radius:8px; background:#f8faf8; }
-        .total-summary .summary-box.gpa { border-color:#2e7d32; background:#e8f5e9; }
-        .total-summary .summary-box .label { font-size:0.75rem; text-transform:uppercase; color:#6a8f6a; font-weight:700; }
-        .total-summary .summary-box .value { font-size:1.8rem; font-weight:900; color:#0d2818; line-height:1; margin-top:5px; }
-        .total-summary .summary-box.gpa .value { color:#2e7d32; }
+        .total-summary .summary-box { border:2px solid var(--primary); padding:15px; text-align:center; border-radius:8px; background:#f8faf8; }
+        .total-summary .summary-box.gpa { border-color:var(--secondary); background:#e8f5e9; }
+        .total-summary .summary-box .label { font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; }
+        .total-summary .summary-box .value { font-size:1.6rem; font-weight:900; color:var(--primary); line-height:1; margin-top:5px; }
+        .total-summary .summary-box.gpa .value { color:var(--secondary); }
 
-        .import-area { background:#f8faf8; padding:30px; border-radius:12px; border:2px dashed #2e7d32; text-align:center; }
-        .import-area input[type="file"] { padding:12px; border:2px solid #dce8dc; border-radius:8px; background:white; width:100%; max-width:400px; margin:15px auto; display:block; }
+        .import-area { background:#f8faf8; padding:30px; border-radius:12px; border:2px dashed var(--secondary); text-align:center; }
+        .import-area input[type="file"] { padding:12px; border:2px solid var(--border); border-radius:8px; background:white; width:100%; max-width:400px; margin:15px auto; display:block; }
 
         .guide-box { background:#e3f2fd; padding:20px; border-radius:10px; margin-bottom:20px; border-left:4px solid #1976d2; }
         .guide-box h4 { color:#0d47a1; margin-bottom:10px; }
         .guide-box ol { padding-left:20px; }
         .guide-box li { margin:5px 0; font-size:0.9rem; }
 
-        @media (max-width:768px) {
+        .combination-table-wrapper {
+            max-height: 600px; overflow-y: auto;
+            border: 2px solid var(--border); border-radius: 8px;
+        }
+        .combination-table-wrapper table { margin-bottom: 0; }
+        .combination-table-wrapper thead th {
+            position: sticky; top: 0; z-index: 10;
+            background: var(--primary); color: white;
+        }
+        .combination-table-wrapper tbody tr:nth-child(even) { background: #fafafa; }
+
+        @media (max-width:900px) {
             .form-row { grid-template-columns:1fr; }
-            .topbar { flex-direction:column; gap:10px; }
             .total-summary { grid-template-columns:1fr; }
+            .topbar { flex-direction:column; gap:10px; }
         }
     </style>
 </head>
@@ -571,9 +771,7 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
                 <a href="admin_dashboard.php">Dashboard</a>
                 <a href="logout.php" class="logout">Logout</a>
             </nav>
-            <div>
-                <span class="admin-badge">👤 <?php echo htmlspecialchars($admin_name); ?></span>
-            </div>
+            <div><span class="admin-badge">👤 <?php echo htmlspecialchars($admin_name); ?></span></div>
         </div>
 
         <div class="result-nav">
@@ -590,55 +788,70 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
             <a href="admin_statement_of_result.php" class="r-statement">STATEMENT_OF_RESULT</a>
         </div>
 
-        <h2 style="color:#0d2818; margin-bottom:15px;">📝 Result Entry</h2>
+        <h2 style="color:var(--primary); margin-bottom:15px;">📝 Result Entry</h2>
 
         <?php if ($message): ?>
             <div class="message <?php echo $message_type; ?>"><?php echo $message; ?></div>
         <?php endif; ?>
 
         <div class="tabs">
-            <button class="tab-btn active" onclick="showTab(event, 'single')">📝 Single Entry</button>
-            <button class="tab-btn" onclick="showTab(event, 'bulk')">📤 Bulk Upload / Download</button>
+            <button class="tab-btn active" onclick="showTab(event, 'single')">📝 Single Student</button>
+            <button class="tab-btn" onclick="showTab(event, 'single-course')">📚 Single Course</button>
+            <button class="tab-btn" onclick="showTab(event, 'complete')">🎯 Complete Combination</button>
+            <button class="tab-btn" onclick="showTab(event, 'bulk')">📤 Bulk CSV</button>
         </div>
 
-        <!-- SINGLE ENTRY -->
+        <!-- TAB 1: SINGLE STUDENT -->
         <div class="tab-content active" id="tab-single">
             <div class="card">
-                <h2>📝 Single Entry - Enter Scores for One Student</h2>
+                <h2>📝 Single Student — Shigar da Maki ga Dalibi Ɗaya</h2>
 
-                <form method="GET">
+                <form method="GET" id="filterForm">
                     <div class="form-row">
                         <div class="form-group">
                             <label>Combination</label>
-                            <select name="combination" required onchange="this.form.submit()">
+                            <select name="combination" required>
                                 <option value="">-- Select --</option>
                                 <?php foreach ($combinations_list as $c): ?>
-                                    <option value="<?php echo $c; ?>" <?php echo (isset($_GET['combination']) && $_GET['combination']==$c)?'selected':''; ?>><?php echo $c; ?></option>
+                                    <option value="<?php echo htmlspecialchars($c); ?>" 
+                                        <?php echo (isset($_GET['combination']) && $_GET['combination']==$c)?'selected':''; ?>>
+                                        <?php echo htmlspecialchars($c); ?>
+                                    </option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>Level</label>
-                            <select name="level" required onchange="this.form.submit()">
+                            <label>Level (Result ɗin da ake so)</label>
+                            <select name="level" required>
                                 <option value="">-- Select --</option>
                                 <?php foreach ($level_options as $lvl): ?>
-                                    <option value="<?php echo $lvl; ?>" <?php echo (isset($_GET['level']) && $_GET['level']==$lvl)?'selected':''; ?>><?php echo $lvl; ?></option>
+                                    <option value="<?php echo htmlspecialchars($lvl); ?>" 
+                                        <?php echo (isset($_GET['level']) && $_GET['level']==$lvl)?'selected':''; ?>>
+                                        <?php echo htmlspecialchars($lvl); ?>
+                                    </option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="form-group">
                             <label>Semester</label>
-                            <select name="semester" required onchange="this.form.submit()">
+                            <select name="semester" required>
                                 <option value="">-- Select --</option>
-                                <option value="First Semester" <?php echo (isset($_GET['semester']) && $_GET['semester']=='First Semester')?'selected':''; ?>>First Semester</option>
-                                <option value="Second Semester" <?php echo (isset($_GET['semester']) && $_GET['semester']=='Second Semester')?'selected':''; ?>>Second Semester</option>
+                                <?php foreach ($semester_options as $sem): ?>
+                                    <option value="<?php echo htmlspecialchars($sem); ?>" 
+                                        <?php echo (isset($_GET['semester']) && $_GET['semester']==$sem)?'selected':''; ?>>
+                                        <?php echo htmlspecialchars($sem); ?>
+                                    </option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="form-group">
                             <label>Session</label>
-                            <select name="session" required onchange="this.form.submit()">
+                            <select name="session" required>
                                 <?php foreach ($session_options as $sess): ?>
-                                    <option value="<?php echo $sess; ?>" <?php echo ((isset($_GET['session']) ? $_GET['session'] : $current_session) == $sess)?'selected':''; ?>><?php echo $sess; ?></option>
+                                    <option value="<?php echo htmlspecialchars($sess); ?>" 
+                                        <?php echo ((isset($_GET['session']) ? $_GET['session'] : $current_session) == $sess)?'selected':''; ?>>
+                                        <?php echo htmlspecialchars($sess); ?>
+                                    </option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -647,26 +860,22 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
                 </form>
 
                 <?php if (isset($_GET['combination']) && isset($_GET['level']) && isset($_GET['semester'])): 
-                    $comb = mysqli_real_escape_string($conn, $_GET['combination']);
-                    $lvl = mysqli_real_escape_string($conn, $_GET['level']);
-                    $sem = mysqli_real_escape_string($conn, $_GET['semester']);
-                    $sess = mysqli_real_escape_string($conn, $_GET['session'] ?? $current_session);
+                    $comb = $_GET['combination'];
+                    $lvl = $_GET['level'];
+                    $sem = $_GET['semester'];
+                    $sess = $_GET['session'] ?? $current_session;
 
-                    $students = getRegisteredStudents($conn, $comb, $lvl, $sem, $sess);
+                    $students = getRegisteredStudents($pdo, $comb, $lvl, $sem, $sess);
                 ?>
-                <hr style="margin:20px 0;">
+                <hr style="margin:20px 0; border:1px solid var(--border);">
 
-                <h3 style="margin-bottom:15px;">Select Student:</h3>
+                <h3 style="margin-bottom:15px;">Zaɓi Dalibi:</h3>
                 <div class="form-row col1">
                     <div class="form-group">
-                        <label>Student</label>
+                        <label>Dalibi (<?php echo count($students); ?> suka cancanta)</label>
                         <select id="studentSelect" onchange="loadStudentCourses()">
-                            <option value="">-- Select Student --</option>
-                            <?php 
-                            $count = 0;
-                            foreach ($students as $s): 
-                                $count++;
-                            ?>
+                            <option value="">-- Zaɓi Dalibi --</option>
+                            <?php foreach ($students as $s): ?>
                                 <option value="<?php echo $s['id']; ?>" 
                                         data-reg="<?php echo htmlspecialchars($s['reg_no'] ?? $s['student_id']); ?>"
                                         data-name="<?php echo htmlspecialchars($s['fullname']); ?>"
@@ -678,8 +887,8 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
                                     <?php echo htmlspecialchars($s['fullname']); ?>
                                 </option>
                             <?php endforeach; ?>
-                            <?php if ($count == 0): ?>
-                                <option value="" disabled>⚠️ No students found for this combination, level and session</option>
+                            <?php if (count($students) == 0): ?>
+                                <option value="" disabled>⚠️ Babu dalibi da ya yi registration</option>
                             <?php endif; ?>
                         </select>
                     </div>
@@ -690,14 +899,371 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
             </div>
         </div>
 
-        <!-- BULK -->
+        <!-- TAB 2: SINGLE COURSE -->
+        <div class="tab-content" id="tab-single-course">
+            <div class="card">
+                <h2>📚 Single Course — Shigar da Maki ga Duk Daliban</h2>
+
+                <form method="GET" id="singleCourseForm">
+                    <input type="hidden" name="sc_load" value="1">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Combination</label>
+                            <select name="combination" required>
+                                <option value="">-- Select --</option>
+                                <?php foreach ($combinations_list as $c): ?>
+                                    <option value="<?php echo htmlspecialchars($c); ?>" 
+                                        <?php echo (isset($_GET['combination']) && $_GET['combination']==$c && isset($_GET['sc_load']))?'selected':''; ?>>
+                                        <?php echo htmlspecialchars($c); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Level</label>
+                            <select name="level" required>
+                                <option value="">-- Select --</option>
+                                <?php foreach ($level_options as $lvl): ?>
+                                    <option value="<?php echo htmlspecialchars($lvl); ?>" 
+                                        <?php echo (isset($_GET['level']) && $_GET['level']==$lvl && isset($_GET['sc_load']))?'selected':''; ?>>
+                                        <?php echo htmlspecialchars($lvl); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Semester</label>
+                            <select name="semester" required>
+                                <option value="">-- Select --</option>
+                                <?php foreach ($semester_options as $sem): ?>
+                                    <option value="<?php echo htmlspecialchars($sem); ?>" 
+                                        <?php echo (isset($_GET['semester']) && $_GET['semester']==$sem && isset($_GET['sc_load']))?'selected':''; ?>>
+                                        <?php echo htmlspecialchars($sem); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Session</label>
+                            <select name="session" required>
+                                <?php foreach ($session_options as $sess): ?>
+                                    <option value="<?php echo htmlspecialchars($sess); ?>" 
+                                        <?php echo ((isset($_GET['session']) ? $_GET['session'] : $current_session) == $sess && isset($_GET['sc_load']))?'selected':''; ?>>
+                                        <?php echo htmlspecialchars($sess); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Course Code *</label>
+                            <input type="text" name="course_code" placeholder="e.g. EDU111" required 
+                                   value="<?php echo htmlspecialchars($_GET['course_code'] ?? ''); ?>">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-orange">🔍 Load Course</button>
+                </form>
+
+                <?php 
+                if (isset($_GET['sc_load']) && isset($_GET['course_code']) && !empty($_GET['course_code'])): 
+                    $sc_comb = $_GET['combination'] ?? '';
+                    $sc_lvl = $_GET['level'] ?? '';
+                    $sc_sem = $_GET['semester'] ?? '';
+                    $sc_sess = $_GET['session'] ?? $current_session;
+                    $sc_course = strtoupper($_GET['course_code']);
+
+                    $sc_students = getRegisteredStudents($pdo, $sc_comb, $sc_lvl, $sc_sem, $sc_sess);
+
+                    $stmt = $pdo->prepare("SELECT * FROM courses WHERE course_code = ? AND level = ? AND semester = ? LIMIT 1");
+                    $stmt->execute([$sc_course, $sc_lvl, $sc_sem]);
+                    $sc_course_data = $stmt->fetch();
+                    $sc_title = $sc_course_data['course_title'] ?? $sc_course;
+                    $sc_credits = $sc_course_data['credits'] ?? $sc_course_data['credit_units'] ?? 0;
+
+                    $sc_existing = [];
+                    $stmt = $pdo->prepare("SELECT student_id, score, grade FROM results 
+                                           WHERE course_code = ? AND level = ? AND semester = ? AND session = ?");
+                    $stmt->execute([$sc_course, $sc_lvl, $sc_sem, $sc_sess]);
+                    while ($r = $stmt->fetch()) {
+                        $sc_existing[$r['student_id']] = $r;
+                    }
+                ?>
+                <hr style="margin:20px 0; border:1px solid var(--border);">
+
+                <?php if (count($sc_students) == 0): ?>
+                    <div style="text-align:center; padding:30px; background:#fff3e0; border-radius:10px;">
+                        <p style="color:#e65100; font-weight:700;">⚠️ Babu dalibi da ya yi registration a wannan zaɓi.</p>
+                    </div>
+                <?php else: ?>
+                    <div class="student-info-box">
+                        <h3>📚 <?php echo htmlspecialchars($sc_course); ?> — <?php echo htmlspecialchars($sc_title); ?></h3>
+                        <p><strong>Units:</strong> <?php echo $sc_credits; ?> | 
+                           <strong>Level:</strong> <?php echo htmlspecialchars($sc_lvl); ?> | 
+                           <strong>Semester:</strong> <?php echo htmlspecialchars($sc_sem); ?> | 
+                           <strong>Session:</strong> <?php echo htmlspecialchars($sc_sess); ?></p>
+                        <p><strong>Dalibai:</strong> <?php echo count($sc_students); ?></p>
+                    </div>
+
+                    <form method="POST">
+                        <input type="hidden" name="combination" value="<?php echo htmlspecialchars($sc_comb); ?>">
+                        <input type="hidden" name="level" value="<?php echo htmlspecialchars($sc_lvl); ?>">
+                        <input type="hidden" name="semester" value="<?php echo htmlspecialchars($sc_sem); ?>">
+                        <input type="hidden" name="session" value="<?php echo htmlspecialchars($sc_sess); ?>">
+                        <input type="hidden" name="course_code" value="<?php echo htmlspecialchars($sc_course); ?>">
+
+                        <table class="result-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Reg No</th>
+                                    <th>Student Name</th>
+                                    <th>Score (0-100)</th>
+                                    <th>Grade</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php $i = 0; foreach ($sc_students as $s): $i++;
+                                    $existing = $sc_existing[$s['id']] ?? null;
+                                ?>
+                                <tr>
+                                    <td><?php echo $i; ?></td>
+                                    <td><strong><?php echo htmlspecialchars($s['reg_no'] ?? $s['student_id']); ?></strong></td>
+                                    <td><?php echo htmlspecialchars($s['fullname']); ?></td>
+                                    <td>
+                                        <input type="number" 
+                                               name="student_scores[<?php echo $s['id']; ?>]" 
+                                               class="score-input" min="0" max="100"
+                                               value="<?php echo $existing['score'] ?? ''; ?>"
+                                               placeholder="0-100">
+                                    </td>
+                                    <td>
+                                        <?php if ($existing && $existing['grade']): ?>
+                                            <span class="grade-badge grade-<?php echo $existing['grade']; ?>">
+                                                <?php echo $existing['grade']; ?>
+                                            </span>
+                                        <?php else: ?>
+                                            <span style="color:#ccc;">—</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+
+                        <button type="submit" name="save_single_course" class="btn btn-green" style="margin-top:15px;">
+                            <i class="fas fa-save"></i> Save All Scores
+                        </button>
+                    </form>
+                <?php endif; ?>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- TAB 3: COMPLETE COMBINATION -->
+        <div class="tab-content" id="tab-complete">
+            <div class="card">
+                <h2>🎯 Complete Combination — Duk Dalibai × Duk Courses</h2>
+
+                <div class="guide-box">
+                    <h4>📖 Yadda Ake Amfani:</h4>
+                    <ol>
+                        <li>Zaɓi <strong>Combination, Level, Semester, da Session</strong></li>
+                        <li>Danna <strong>"Load Complete Grid"</strong></li>
+                        <li>Za a nuna <strong>tebur mai girma</strong> — dalibai a layi, courses a shafi</li>
+                        <li>Shigar da maki a kowane cell</li>
+                        <li>Danna <strong>"Save Complete Combination"</strong> — za a adana duk maki gaba ɗaya</li>
+                    </ol>
+                </div>
+
+                <form method="GET" id="completeForm">
+                    <input type="hidden" name="cc_load" value="1">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Combination</label>
+                            <select name="combination" required>
+                                <option value="">-- Select --</option>
+                                <?php foreach ($combinations_list as $c): ?>
+                                    <option value="<?php echo htmlspecialchars($c); ?>" 
+                                        <?php echo (isset($_GET['combination']) && $_GET['combination']==$c && isset($_GET['cc_load']))?'selected':''; ?>>
+                                        <?php echo htmlspecialchars($c); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Level</label>
+                            <select name="level" required>
+                                <option value="">-- Select --</option>
+                                <?php foreach ($level_options as $lvl): ?>
+                                    <option value="<?php echo htmlspecialchars($lvl); ?>" 
+                                        <?php echo (isset($_GET['level']) && $_GET['level']==$lvl && isset($_GET['cc_load']))?'selected':''; ?>>
+                                        <?php echo htmlspecialchars($lvl); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Semester</label>
+                            <select name="semester" required>
+                                <option value="">-- Select --</option>
+                                <?php foreach ($semester_options as $sem): ?>
+                                    <option value="<?php echo htmlspecialchars($sem); ?>" 
+                                        <?php echo (isset($_GET['semester']) && $_GET['semester']==$sem && isset($_GET['cc_load']))?'selected':''; ?>>
+                                        <?php echo htmlspecialchars($sem); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Session</label>
+                            <select name="session" required>
+                                <?php foreach ($session_options as $sess): ?>
+                                    <option value="<?php echo htmlspecialchars($sess); ?>" 
+                                        <?php echo ((isset($_GET['session']) ? $_GET['session'] : $current_session) == $sess && isset($_GET['cc_load']))?'selected':''; ?>>
+                                        <?php echo htmlspecialchars($sess); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-red">🎯 Load Complete Grid</button>
+                </form>
+
+                <?php 
+                if (isset($_GET['cc_load']) && isset($_GET['combination']) && isset($_GET['level']) && isset($_GET['semester'])): 
+                    $cc_comb = $_GET['combination'];
+                    $cc_lvl = $_GET['level'];
+                    $cc_sem = $_GET['semester'];
+                    $cc_sess = $_GET['session'] ?? $current_session;
+
+                    $cc_students = getRegisteredStudents($pdo, $cc_comb, $cc_lvl, $cc_sem, $cc_sess);
+                    $cc_courses = getAllRegisteredCourses($pdo, $cc_comb, $cc_lvl, $cc_sem, $cc_sess);
+
+                    $cc_existing = [];
+                    if (count($cc_students) > 0) {
+                        $student_ids = array_column($cc_students, 'id');
+                        $placeholders = implode(',', array_fill(0, count($student_ids), '?'));
+                        $sql = "SELECT student_id, course_code, score, grade 
+                                FROM results 
+                                WHERE student_id IN ($placeholders) 
+                                AND level = ? 
+                                AND semester = ? 
+                                AND session = ?";
+                        $params = array_merge($student_ids, [$cc_lvl, $cc_sem, $cc_sess]);
+                        $stmt = $pdo->prepare($sql);
+                        $stmt->execute($params);
+                        while ($r = $stmt->fetch()) {
+                            $cc_existing[$r['student_id']][$r['course_code']] = $r;
+                        }
+                    }
+                ?>
+                <hr style="margin:20px 0; border:1px solid var(--border);">
+
+                <?php if (count($cc_students) == 0): ?>
+                    <div style="text-align:center; padding:30px; background:#fff3e0; border-radius:10px;">
+                        <p style="color:#e65100; font-weight:700;">⚠️ Babu dalibi da ya yi registration a wannan zaɓi.</p>
+                    </div>
+                <?php elseif (count($cc_courses) == 0): ?>
+                    <div style="text-align:center; padding:30px; background:#fff3e0; border-radius:10px;">
+                        <p style="color:#e65100; font-weight:700;">⚠️ Babu courses ɗin da aka yi registration.</p>
+                    </div>
+                <?php else: ?>
+                    <div class="student-info-box">
+                        <h3>🎯 Complete Combination Grid</h3>
+                        <p><strong>Combination:</strong> <?php echo htmlspecialchars($cc_comb); ?> | 
+                           <strong>Level:</strong> <?php echo htmlspecialchars($cc_lvl); ?> | 
+                           <strong>Semester:</strong> <?php echo htmlspecialchars($cc_sem); ?> | 
+                           <strong>Session:</strong> <?php echo htmlspecialchars($cc_sess); ?></p>
+                        <p><strong>Dalibai:</strong> <?php echo count($cc_students); ?> | 
+                           <strong>Courses:</strong> <?php echo count($cc_courses); ?></p>
+                    </div>
+
+                    <form method="POST" id="completeSaveForm">
+                        <input type="hidden" name="combination" value="<?php echo htmlspecialchars($cc_comb); ?>">
+                        <input type="hidden" name="level" value="<?php echo htmlspecialchars($cc_lvl); ?>">
+                        <input type="hidden" name="semester" value="<?php echo htmlspecialchars($cc_sem); ?>">
+                        <input type="hidden" name="session" value="<?php echo htmlspecialchars($cc_sess); ?>">
+
+                        <div class="combination-table-wrapper">
+                            <table class="result-table">
+                                <thead>
+                                    <tr>
+                                        <th style="min-width:60px;">#</th>
+                                        <th style="min-width:120px;">Reg No</th>
+                                        <th style="min-width:180px;">Student Name</th>
+                                        <?php foreach ($cc_courses as $c): ?>
+                                            <th style="min-width:90px; text-align:center;">
+                                                <?php echo htmlspecialchars($c['course_code']); ?><br>
+                                                <small style="font-weight:400; opacity:0.8;">(<?php echo $c['credits']; ?>)</small>
+                                            </th>
+                                        <?php endforeach; ?>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php $i = 0; foreach ($cc_students as $s): $i++; ?>
+                                    <tr>
+                                        <td><?php echo $i; ?></td>
+                                        <td><strong><?php echo htmlspecialchars($s['reg_no'] ?? $s['student_id']); ?></strong></td>
+                                        <td><?php echo htmlspecialchars($s['fullname']); ?></td>
+                                        <?php foreach ($cc_courses as $c): 
+                                            $existing_score = $cc_existing[$s['id']][$c['course_code']]['score'] ?? '';
+                                        ?>
+                                            <td style="text-align:center;">
+                                                <input type="number" 
+                                                       name="combination_scores[<?php echo $s['id']; ?>][<?php echo htmlspecialchars($c['course_code']); ?>]" 
+                                                       class="score-input" min="0" max="100"
+                                                       value="<?php echo htmlspecialchars($existing_score); ?>"
+                                                       placeholder="—"
+                                                       style="width:60px; padding:5px; font-size:0.8rem;">
+                                            </td>
+                                        <?php endforeach; ?>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
+                            <button type="submit" name="save_complete" class="btn btn-green" style="font-size:1rem; padding:14px 40px;">
+                                <i class="fas fa-save"></i> Save Complete Combination
+                            </button>
+                            <button type="button" class="btn btn-orange" onclick="fillEmptyWithZero()">
+                                <i class="fas fa-fill"></i> Cika komai da 0
+                            </button>
+                            <button type="button" class="btn btn-red" onclick="clearAllScores()">
+                                <i class="fas fa-eraser"></i> Share Duk Maki
+                            </button>
+                        </div>
+                    </form>
+
+                    <script>
+                    function fillEmptyWithZero() {
+                        if (!confirm('Ka tabbata? Za a cika duk cells da 0.')) return;
+                        document.querySelectorAll('#completeSaveForm .score-input').forEach(function(input) {
+                            if (input.value === '') input.value = 0;
+                        });
+                    }
+                    function clearAllScores() {
+                        if (!confirm('Ka tabbata? Za a share duk maki.')) return;
+                        document.querySelectorAll('#completeSaveForm .score-input').forEach(function(input) {
+                            input.value = '';
+                        });
+                    }
+                    </script>
+                <?php endif; ?>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- TAB 4: BULK CSV -->
         <div class="tab-content" id="tab-bulk">
             <div class="card">
                 <div class="guide-box">
-                    <h4>📖 How To Use:</h4>
+                    <h4>📖 Yadda Ake Amfani da CSV:</h4>
                     <ol>
-                        <li><strong>Step 1:</strong> Download Sheet — All Courses ko Single Course</li>
-                        <li><strong>Step 2:</strong> Open CSV a Excel/Google Sheets</li>
+                        <li><strong>Step 1:</strong> Download Sheet (All Courses ko Single Course)</li>
+                        <li><strong>Step 2:</strong> Buɗe CSV a Excel/Google Sheets</li>
                         <li><strong>Step 3:</strong> Shigar da maki (0-100)</li>
                         <li><strong>Step 4:</strong> Ajiye a matsayin CSV</li>
                         <li><strong>Step 5:</strong> Upload Sheet</li>
@@ -706,7 +1272,6 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
                 </div>
             </div>
 
-            <!-- DOWNLOAD ALL COURSES -->
             <div class="card">
                 <h2>📥 Step 1a: Download Sheet (All Courses)</h2>
                 <form method="GET">
@@ -717,7 +1282,7 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
                             <select name="combination" required>
                                 <option value="">-- Select --</option>
                                 <?php foreach ($combinations_list as $c): ?>
-                                    <option value="<?php echo $c; ?>"><?php echo $c; ?></option>
+                                    <option value="<?php echo htmlspecialchars($c); ?>"><?php echo htmlspecialchars($c); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -725,22 +1290,23 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
                             <label>Level *</label>
                             <select name="level" required>
                                 <?php foreach ($level_options as $lvl): ?>
-                                    <option value="<?php echo $lvl; ?>"><?php echo $lvl; ?></option>
+                                    <option value="<?php echo htmlspecialchars($lvl); ?>"><?php echo htmlspecialchars($lvl); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="form-group">
                             <label>Semester *</label>
                             <select name="semester" required>
-                                <option value="First Semester">First Semester</option>
-                                <option value="Second Semester">Second Semester</option>
+                                <?php foreach ($semester_options as $sem): ?>
+                                    <option value="<?php echo htmlspecialchars($sem); ?>"><?php echo htmlspecialchars($sem); ?></option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="form-group">
                             <label>Session *</label>
                             <select name="session" required>
                                 <?php foreach ($session_options as $sess): ?>
-                                    <option value="<?php echo $sess; ?>" <?php echo ($current_session == $sess)?'selected':''; ?>><?php echo $sess; ?></option>
+                                    <option value="<?php echo htmlspecialchars($sess); ?>" <?php echo ($current_session == $sess)?'selected':''; ?>><?php echo htmlspecialchars($sess); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -751,7 +1317,6 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
                 </form>
             </div>
 
-            <!-- DOWNLOAD SINGLE COURSE -->
             <div class="card">
                 <h2>📥 Step 1b: Download Sheet (Single Course)</h2>
                 <form method="GET">
@@ -762,7 +1327,7 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
                             <select name="combination" required>
                                 <option value="">-- Select --</option>
                                 <?php foreach ($combinations_list as $c): ?>
-                                    <option value="<?php echo $c; ?>"><?php echo $c; ?></option>
+                                    <option value="<?php echo htmlspecialchars($c); ?>"><?php echo htmlspecialchars($c); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -770,15 +1335,16 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
                             <label>Level *</label>
                             <select name="level" required>
                                 <?php foreach ($level_options as $lvl): ?>
-                                    <option value="<?php echo $lvl; ?>"><?php echo $lvl; ?></option>
+                                    <option value="<?php echo htmlspecialchars($lvl); ?>"><?php echo htmlspecialchars($lvl); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="form-group">
                             <label>Semester *</label>
                             <select name="semester" required>
-                                <option value="First Semester">First Semester</option>
-                                <option value="Second Semester">Second Semester</option>
+                                <?php foreach ($semester_options as $sem): ?>
+                                    <option value="<?php echo htmlspecialchars($sem); ?>"><?php echo htmlspecialchars($sem); ?></option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="form-group">
@@ -789,7 +1355,7 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
                             <label>Session *</label>
                             <select name="session" required>
                                 <?php foreach ($session_options as $sess): ?>
-                                    <option value="<?php echo $sess; ?>" <?php echo ($current_session == $sess)?'selected':''; ?>><?php echo $sess; ?></option>
+                                    <option value="<?php echo htmlspecialchars($sess); ?>" <?php echo ($current_session == $sess)?'selected':''; ?>><?php echo htmlspecialchars($sess); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -800,7 +1366,6 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
                 </form>
             </div>
 
-            <!-- UPLOAD -->
             <div class="card">
                 <h2>📤 Step 2: Upload Filled Sheet</h2>
                 <form method="POST" enctype="multipart/form-data">
@@ -810,7 +1375,7 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
                             <select name="combination" required>
                                 <option value="">-- Select --</option>
                                 <?php foreach ($combinations_list as $c): ?>
-                                    <option value="<?php echo $c; ?>"><?php echo $c; ?></option>
+                                    <option value="<?php echo htmlspecialchars($c); ?>"><?php echo htmlspecialchars($c); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -818,22 +1383,23 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
                             <label>Level *</label>
                             <select name="level" required>
                                 <?php foreach ($level_options as $lvl): ?>
-                                    <option value="<?php echo $lvl; ?>"><?php echo $lvl; ?></option>
+                                    <option value="<?php echo htmlspecialchars($lvl); ?>"><?php echo htmlspecialchars($lvl); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="form-group">
                             <label>Semester *</label>
                             <select name="semester" required>
-                                <option value="First Semester">First Semester</option>
-                                <option value="Second Semester">Second Semester</option>
+                                <?php foreach ($semester_options as $sem): ?>
+                                    <option value="<?php echo htmlspecialchars($sem); ?>"><?php echo htmlspecialchars($sem); ?></option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="form-group">
                             <label>Session *</label>
                             <select name="session" required>
                                 <?php foreach ($session_options as $sess): ?>
-                                    <option value="<?php echo $sess; ?>" <?php echo ($current_session == $sess)?'selected':''; ?>><?php echo $sess; ?></option>
+                                    <option value="<?php echo htmlspecialchars($sess); ?>" <?php echo ($current_session == $sess)?'selected':''; ?>><?php echo htmlspecialchars($sess); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -850,6 +1416,7 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
                 </form>
             </div>
         </div>
+
     </div>
 
     <script>
@@ -875,7 +1442,8 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
         var semester = opt.getAttribute('data-semester');
         var session = opt.getAttribute('data-session');
 
-        document.getElementById('coursesContainer').innerHTML = '<p style="text-align:center; padding:20px; color:#6a8f6a;">⏳ Loading courses...</p>';
+        document.getElementById('coursesContainer').innerHTML = 
+            '<p style="text-align:center; padding:20px; color:var(--text-muted);">⏳ Loading courses...</p>';
 
         fetch('get_student_courses.php?student_id=' + studentId + 
               '&combination=' + encodeURIComponent(combination) + 
@@ -887,7 +1455,8 @@ while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
                 document.getElementById('coursesContainer').innerHTML = html;
             })
             .catch(err => {
-                document.getElementById('coursesContainer').innerHTML = '<p style="color:red;">Error: ' + err.message + '</p>';
+                document.getElementById('coursesContainer').innerHTML = 
+                    '<p style="color:red; padding:20px;">Error: ' + err.message + '</p>';
             });
     }
     </script>

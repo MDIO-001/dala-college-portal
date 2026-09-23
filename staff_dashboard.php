@@ -88,9 +88,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $can_acce
             $centre_code = $centre_codes[$branch_code] ?? 'A';
             
             $dept_codes = [
-                'ARB/ISS' => 'ARI', 'ENG/ISS' => 'ENG', 'PED' => 'PED',
-                'HAU/ENG' => 'HAU', 'CSC/ISC' => 'CSC', 'ENG/SOS' => 'SOC',
-                'CSC/BIO' => 'BIO', 'CSC/PHY' => 'PHY', 'ENG/ECO' => 'ECO'
+                'ARB/ISS' => 'ARI', 'ENG/ISS' => 'ENI', 'PED' => 'PED',
+                'ENG/HAU' => 'ENH', 'CSC/ISC' => 'CSI', 'ENG/SOS' => 'ENS',
+                'CSC/BIO' => 'CSB', 'CSC/PHY' => 'CSP', 'ENG/ECO' => 'ENE'
             ];
             $dept_code = $dept_codes[$course] ?? 'GEN';
             
@@ -99,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $can_acce
             else $prog_code = 'NCE';
             
             $year = date('y');
-            $count = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM students"))['total'] + 1;
+            $count = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM students WHERE reg_no LIKE 'DLCOE/$prog_code/$year%'"))['total'] + 1;
             $next_num = str_pad($count, 3, '0', STR_PAD_LEFT);
             
             $admission_no = "DLCOE/{$prog_code}/{$year}{$centre_code}{$next_num}/{$dept_code}{$next_num}";
@@ -120,7 +120,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $can_acce
 }
 
 // ============================================
-// STATS
+// STATS (BASIC)
 // ============================================
 $total_students = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students"))['c'];
 $total_staff = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM staff"))['c'];
@@ -130,6 +130,77 @@ $total_applications = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as
 $pending = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM applications WHERE status = 'pending'"))['c'];
 $approved = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM applications WHERE status = 'approved'"))['c'];
 $rejected = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM applications WHERE status = 'rejected'"))['c'];
+
+// ============================================
+// STATS (FOR PROVOST / ADMIN / EXAM OFFICER)
+// ============================================
+$pending_applications = 0;
+$approved_students = 0;
+$rejected_students = 0;
+$nce1_count = 0;
+$nce2_count = 0;
+$nce3_count = 0;
+$degree_400 = 0;
+$degree_500 = 0;
+$branch_a = 0;
+$branch_b = 0;
+$branch_c = 0;
+$male_total = 0;
+$female_total = 0;
+$male_branch_a = 0;
+$female_branch_a = 0;
+$male_branch_b = 0;
+$female_branch_b = 0;
+$male_branch_c = 0;
+$female_branch_c = 0;
+$academic_staff = 0;
+$non_academic_staff = 0;
+
+if ($is_admin || $is_provost || $is_exam_officer) {
+    $pending_applications = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM applications WHERE status = 'pending'"))['c'];
+    $approved_students = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE status IN ('approved', 'active', 'graduated')"))['c'];
+    $rejected_students = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE status IN ('rejected', 'inactive')"))['c'];
+    
+    $nce1_count = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE level = 'NCE I'"))['c'];
+    $nce2_count = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE level = 'NCE II'"))['c'];
+    $nce3_count = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE level = 'NCE III'"))['c'];
+    $degree_400 = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE level = '400 Level'"))['c'];
+    $degree_500 = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE level = '500 Level'"))['c'];
+    
+    $branch_a = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE branch_code = 'SHINGE'"))['c'];
+    $branch_b = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE branch_code = 'SABUWA'"))['c'];
+    $branch_c = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE branch_code = 'TUDUN'"))['c'];
+}
+
+// ============================================
+// GENDER STATS (ADMIN DA PROVOST KAWAI)
+// ============================================
+if ($is_admin || $is_provost) {
+    $male_total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE gender = 'Male'"))['c'];
+    $female_total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE gender = 'Female'"))['c'];
+    
+    $male_branch_a = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE gender = 'Male' AND branch_code = 'SHINGE'"))['c'];
+    $female_branch_a = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE gender = 'Female' AND branch_code = 'SHINGE'"))['c'];
+    
+    $male_branch_b = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE gender = 'Male' AND branch_code = 'SABUWA'"))['c'];
+    $female_branch_b = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE gender = 'Female' AND branch_code = 'SABUWA'"))['c'];
+    
+    $male_branch_c = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE gender = 'Male' AND branch_code = 'TUDUN'"))['c'];
+    $female_branch_c = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as c FROM students WHERE gender = 'Female' AND branch_code = 'TUDUN'"))['c'];
+    
+    $academic_staff = mysqli_fetch_assoc(mysqli_query($conn, "
+        SELECT COUNT(*) as c FROM staff 
+        WHERE LOWER(position) LIKE '%lecturer%' 
+        OR LOWER(position) LIKE '%tutor%' 
+        OR LOWER(position) LIKE '%instructor%'
+        OR LOWER(position) LIKE '%professor%'
+        OR LOWER(position) LIKE '%teacher%'
+        OR LOWER(role) LIKE '%lecturer%'
+        OR LOWER(role) LIKE '%academic%'
+    "))['c'];
+    
+    $non_academic_staff = $total_staff - $academic_staff;
+}
 
 // Payment stats
 $total_payments = 0;
@@ -187,6 +258,9 @@ $current_date = date('l, F j, Y');
         .welcome-section .staff-badge .accept-tag.no { background:#c62828; color:white; }
         .welcome-section .staff-badge .pending-badge { background:#ffa000; color:white; padding:6px 18px; border-radius:50px; font-size:0.8rem; font-weight:600; }
         
+        .alert-success { background:#e8f5e9; color:#2e7d32; padding:15px 20px; border-radius:12px; margin-bottom:20px; border-left:4px solid #2e7d32; }
+        .alert-error { background:#ffebee; color:#c62828; padding:15px 20px; border-radius:12px; margin-bottom:20px; border-left:4px solid #c62828; }
+        
         .stats-grid { display:grid; grid-template-columns:repeat(6, 1fr); gap:15px; margin-bottom:25px; }
         .stat-card { background:white; padding:18px; border-radius:12px; text-align:center; box-shadow:0 2px 10px rgba(0,0,0,0.05); cursor:pointer; transition:all 0.3s ease; border-top:4px solid #2e7d32; text-decoration:none; color:inherit; display:block; }
         .stat-card:hover { transform:translateY(-4px); box-shadow:0 8px 25px rgba(0,0,0,0.1); }
@@ -205,6 +279,20 @@ $current_date = date('l, F j, Y');
         .stat-card.purple .number { color:#7b1fa2; }
         .stat-card.orange { border-top-color:#f57c00; }
         .stat-card.orange .number { color:#f57c00; }
+        .stat-card.branch-a { border-top-color:#1b5e20; }
+        .stat-card.branch-a .number { color:#1b5e20; }
+        .stat-card.branch-b { border-top-color:#0d47a1; }
+        .stat-card.branch-b .number { color:#0d47a1; }
+        .stat-card.branch-c { border-top-color:#e65100; }
+        .stat-card.branch-c .number { color:#e65100; }
+        .stat-card.male { border-top-color:#1976d2; }
+        .stat-card.male .number { color:#1976d2; }
+        .stat-card.female { border-top-color:#c2185b; }
+        .stat-card.female .number { color:#c2185b; }
+        .stat-card.academic { border-top-color:#6a1b9a; }
+        .stat-card.academic .number { color:#6a1b9a; }
+        .stat-card.non-academic { border-top-color:#e65100; }
+        .stat-card.non-academic .number { color:#e65100; }
         
         .result-nav { background:white; padding:12px 15px; border-radius:12px; margin-bottom:20px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; box-shadow:0 2px 10px rgba(0,0,0,0.05); }
         .result-nav .label { font-weight:700; color:#0d2818; margin-right:10px; font-size:0.8rem; flex-shrink:0; }
@@ -220,7 +308,6 @@ $current_date = date('l, F j, Y');
         .r-final { background:#00695c; color:white; }
         .r-settings { background:#e65100; color:white; }
         .r-statement { background:#4a148c; color:white; }
-        .r-payments { background:#f57c00; color:white; }
         
         .card { background:white; padding:25px; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,0.05); margin-bottom:20px; }
         .card h3 { color:#0d2818; margin-bottom:15px; font-size:1.1rem; }
@@ -238,8 +325,6 @@ $current_date = date('l, F j, Y');
         .quick-card.courses i { color:#2e7d32; }
         .quick-card.database i { color:#37474f; }
         .quick-card.payments i { color:#f57c00; }
-        
-        .alert-success { background:#e8f5e9; color:#2e7d32; padding:15px 20px; border-radius:12px; margin-bottom:20px; border-left:4px solid #2e7d32; }
         
         .table-section { background:white; padding:25px 30px; border-radius:16px; box-shadow:0 2px 12px rgba(0,0,0,0.06); overflow-x:auto; margin-bottom:25px; }
         .table-section .table-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; margin-bottom:18px; }
@@ -265,12 +350,13 @@ $current_date = date('l, F j, Y');
         .no-applications { text-align:center; padding:40px; color:#6a8f6a; }
         .no-applications i { font-size:3rem; display:block; margin-bottom:10px; color:#dce8dc; }
         
+        @media (max-width:1200px) { .stats-grid { grid-template-columns: repeat(4, 1fr); } }
         @media (max-width:1024px) { .stats-grid { grid-template-columns:repeat(3, 1fr); } }
         @media (max-width:768px) {
             .topbar { flex-direction:column; gap:10px; text-align:center; }
             .topbar nav a { font-size:0.75rem; padding:6px 10px; }
             .welcome-section { flex-direction:column; text-align:center; gap:12px; padding:20px; }
-            .stats-grid { grid-template-columns:1fr 1fr; }
+            .stats-grid { grid-template-columns: 1fr 1fr; }
             .table-section { padding:15px; }
         }
     </style>
@@ -287,7 +373,7 @@ $current_date = date('l, F j, Y');
         </div>
         <nav>
             <a href="staff_dashboard.php" class="active"><i class="fas fa-home"></i> Dashboard</a>
-            <?php if ($is_admin): ?>
+            <?php if ($is_admin || $is_provost): ?>
                 <a href="admin_result_entry.php"><i class="fas fa-edit"></i> Result Entry</a>
                 <a href="admin_result_slip.php"><i class="fas fa-file-invoice"></i> Result Slip</a>
                 <a href="admin_result_slip_pro.php"><i class="fas fa-file-alt"></i> Result Slip Pro</a>
@@ -296,10 +382,7 @@ $current_date = date('l, F j, Y');
                 <a href="admin_result_entry.php"><i class="fas fa-edit"></i> Result Entry</a>
                 <a href="admin_result_slip.php"><i class="fas fa-file-invoice"></i> Result Slip</a>
                 <a href="admin_result_slip_pro.php"><i class="fas fa-file-alt"></i> Result Slip Pro</a>
-            <?php elseif ($is_provost): ?>
-                <a href="admin_result_slip.php"><i class="fas fa-file-invoice"></i> Result Slip</a>
-                <a href="admin_result_slip_pro.php"><i class="fas fa-file-alt"></i> Result Slip Pro</a>
-                <a href="admin_payments.php"><i class="fas fa-money-bill-wave"></i> Payments</a>
+                <a href="admin_result_database.php"><i class="fas fa-database"></i> Result Database</a>
             <?php elseif ($is_accountant): ?>
                 <a href="admin_payments.php"><i class="fas fa-money-bill-wave"></i> Payments</a>
             <?php else: ?>
@@ -323,12 +406,12 @@ $current_date = date('l, F j, Y');
             </div>
             <div class="staff-badge">
                 <span class="role-tag"><i class="fas fa-user-tie"></i> <?php echo htmlspecialchars($position); ?></span>
-                <?php if ($is_exam_officer): ?>
-                    <span class="exam-tag"><i class="fas fa-graduation-cap"></i> EXAM OFFICER</span>
+                <?php if ($is_admin): ?>
+                    <span class="exam-tag" style="background:#1976d2; color:white;"><i class="fas fa-shield-alt"></i> ADMIN</span>
                 <?php elseif ($is_provost): ?>
                     <span class="exam-tag" style="background:#ffd54f;"><i class="fas fa-crown"></i> PROVOST</span>
-                <?php elseif ($is_admin): ?>
-                    <span class="exam-tag" style="background:#1976d2; color:white;"><i class="fas fa-shield-alt"></i> ADMIN</span>
+                <?php elseif ($is_exam_officer): ?>
+                    <span class="exam-tag"><i class="fas fa-graduation-cap"></i> EXAM OFFICER</span>
                 <?php elseif ($is_accountant): ?>
                     <span class="exam-tag" style="background:#f57c00; color:white;"><i class="fas fa-calculator"></i> ACCOUNTANT</span>
                 <?php elseif ($can_accept): ?>
@@ -345,13 +428,17 @@ $current_date = date('l, F j, Y');
         <?php if (isset($success)): ?>
             <div class="alert-success"><i class="fas fa-check-circle"></i> <?php echo $success; ?></div>
         <?php endif; ?>
+        
+        <?php if (isset($_GET['error']) && $_GET['error'] == 'access_denied'): ?>
+            <div class="alert-error"><i class="fas fa-exclamation-circle"></i> <strong>Access Denied!</strong> Ba ka da izinin shiga wannan fayil ɗin.</div>
+        <?php endif; ?>
 
         <!-- ============================================ -->
-        <!-- RESULT ACCESS SECTION -->
+        <!-- RESULT ACCESS SECTION (Admin, Provost, Exam Officer) -->
         <!-- ============================================ -->
         <?php if ($has_result_access): ?>
         
-        <!-- Result System Navigation -->
+        <!-- RESULT SYSTEM NAVIGATION -->
         <div class="result-nav">
             <span class="label">📊 RESULT SYSTEM:</span>
             
@@ -366,65 +453,192 @@ $current_date = date('l, F j, Y');
                 <a href="admin_settings.php" class="r-settings">SETTINGS</a>
                 <a href="admin_result_database.php" class="r-database">RESULT_DATABASE</a>
                 <a href="admin_statement_of_result.php" class="r-statement">STATEMENT_OF_RESULT</a>
-            <?php elseif ($is_exam_officer): ?>
+
+            <?php elseif ($is_provost): ?>
+                <a href="admin_course_structure.php" class="r-course">COURSE_STRUCTURE</a>
+                <a href="admin_grade_setup.php" class="r-grade">GRADE_SETUP</a>
                 <a href="admin_result_entry.php" class="r-entry">RESULT_ENTRY</a>
                 <a href="admin_result_slip.php" class="r-slip">RESULT_SLIP</a>
                 <a href="admin_result_slip_pro.php" class="r-slip-pro">RESULT_SLIP_PRO</a>
-            <?php elseif ($is_provost): ?>
+                <a href="admin_transcript.php" class="r-transcript">TRANSCRIPT</a>
+                <a href="admin_final_result.php" class="r-final">FINAL_RESULT</a>
+                <a href="admin_result_database.php" class="r-database">RESULT_DATABASE</a>
+                <a href="admin_statement_of_result.php" class="r-statement">STATEMENT_OF_RESULT</a>
+
+            <?php elseif ($is_exam_officer): ?>
+                <a href="admin_course_structure.php" class="r-course">COURSE_STRUCTURE</a>
+                <a href="admin_grade_setup.php" class="r-grade">GRADE_SETUP</a>
+                <a href="admin_result_entry.php" class="r-entry">RESULT_ENTRY</a>
                 <a href="admin_result_slip.php" class="r-slip">RESULT_SLIP</a>
                 <a href="admin_result_slip_pro.php" class="r-slip-pro">RESULT_SLIP_PRO</a>
+                <a href="admin_result_database.php" class="r-database">RESULT_DATABASE</a>
             <?php endif; ?>
-            
         </div>
         
-        <!-- Stats Grid -->
+        <!-- ============================================ -->
+        <!-- STATS GRID (ROW 1) -->
+        <!-- ============================================ -->
         <div class="stats-grid">
+            <a href="view_applications.php?status=pending" class="stat-card pending">
+                <span class="icon">📌</span>
+                <div class="number"><?php echo $pending_applications; ?></div>
+                <div class="label">📌 Pending</div>
+            </a>
+            <a href="view_applications.php?status=approved" class="stat-card approved">
+                <span class="icon">✅</span>
+                <div class="number"><?php echo $approved_students; ?></div>
+                <div class="label">✅ Accepted</div>
+            </a>
+            <a href="view_applications.php?status=rejected" class="stat-card rejected">
+                <span class="icon">❌</span>
+                <div class="number"><?php echo $rejected_students; ?></div>
+                <div class="label">❌ Rejected</div>
+            </a>
             <a href="view_students.php" class="stat-card">
                 <span class="icon">🎓</span>
                 <div class="number"><?php echo $total_students; ?></div>
-                <div class="label">Total Students</div>
+                <div class="label">🎓 Total Students</div>
+            </a>
+            <a href="view_students.php?level=NCE III" class="stat-card" style="border-top-color:#1b5e20;">
+                <span class="icon">🏆</span>
+                <div class="number" style="color:#1b5e20;"><?php echo $nce3_count; ?></div>
+                <div class="label">🏆 NCE III</div>
+            </a>
+            <a href="view_students.php?level=NCE II" class="stat-card blue">
+                <span class="icon">📘</span>
+                <div class="number"><?php echo $nce2_count; ?></div>
+                <div class="label">📘 NCE II</div>
+            </a>
+        </div>
+        
+        <!-- ============================================ -->
+        <!-- STATS GRID (ROW 2) -->
+        <!-- ============================================ -->
+        <div class="stats-grid">
+            <a href="view_students.php?level=NCE I" class="stat-card" style="border-top-color:#e65100;">
+                <span class="icon">📗</span>
+                <div class="number" style="color:#e65100;"><?php echo $nce1_count; ?></div>
+                <div class="label">📗 NCE I</div>
+            </a>
+            <a href="view_students.php?level=400 Level" class="stat-card purple">
+                <span class="icon">🎓</span>
+                <div class="number"><?php echo $degree_400; ?></div>
+                <div class="label">🎓 400 Level</div>
+            </a>
+            <a href="view_students.php?level=500 Level" class="stat-card" style="border-top-color:#4527a0;">
+                <span class="icon">🎓</span>
+                <div class="number" style="color:#4527a0;"><?php echo $degree_500; ?></div>
+                <div class="label">🎓 500 Level</div>
             </a>
             <a href="view_staff.php" class="stat-card blue">
                 <span class="icon">👥</span>
                 <div class="number"><?php echo $total_staff; ?></div>
-                <div class="label">Total Staff</div>
+                <div class="label">👥 Total Staff</div>
             </a>
-            <a href="admin_course_structure.php" class="stat-card purple">
-                <span class="icon">📚</span>
-                <div class="number"><?php echo $total_courses; ?></div>
-                <div class="label">Total Courses</div>
+            <a href="view_students.php?branch=SHINGE" class="stat-card branch-a">
+                <span class="icon">⭐</span>
+                <div class="number"><?php echo $branch_a; ?></div>
+                <div class="label">⭐ A - Shinge</div>
             </a>
-            <a href="admin_result_database.php" class="stat-card blue">
-                <span class="icon">📊</span>
-                <div class="number"><?php echo $total_results; ?></div>
-                <div class="label">Total Results</div>
-            </a>
-            <?php if ($has_payment_access): ?>
-            <a href="admin_payments.php" class="stat-card orange">
-                <span class="icon">💰</span>
-                <div class="number"><?php echo $total_payments; ?></div>
-                <div class="label">Total Payments</div>
-            </a>
-            <?php else: ?>
-            <a href="view_applications.php" class="stat-card pending">
-                <span class="icon">⏳</span>
-                <div class="number"><?php echo $pending; ?></div>
-                <div class="label">Pending Applications</div>
-            </a>
-            <?php endif; ?>
-            <a href="view_applications.php" class="stat-card approved">
-                <span class="icon">✅</span>
-                <div class="number"><?php echo $approved; ?></div>
-                <div class="label">Approved</div>
+            <a href="view_students.php?branch=SABUWA" class="stat-card branch-b">
+                <span class="icon">⭐</span>
+                <div class="number"><?php echo $branch_b; ?></div>
+                <div class="label">⭐ B - Sabuwar Kofa</div>
             </a>
         </div>
         
-        <!-- Quick Actions -->
+        <!-- ============================================ -->
+        <!-- STATS GRID (ROW 3 - BRANCH C) -->
+        <!-- ============================================ -->
+        <div class="stats-grid">
+            <a href="view_students.php?branch=TUDUN" class="stat-card branch-c">
+                <span class="icon">⭐</span>
+                <div class="number"><?php echo $branch_c; ?></div>
+                <div class="label">⭐ C - Tudun Yola</div>
+            </a>
+        </div>
+        
+        <!-- ============================================ -->
+        <!-- GENDER STATS (ADMIN DA PROVOST KAWAI) -->
+        <!-- ============================================ -->
+        <?php if ($is_admin || $is_provost): ?>
+        
+        <h3 style="color:#0d2818; margin-bottom:15px; font-size:1.1rem;">
+            <i class="fas fa-venus-mars" style="color:#1976d2;"></i> Gender & Staff Statistics
+        </h3>
+        
+        <!-- ROW 1: Total Male/Female -->
+        <div class="stats-grid">
+            <a href="view_students.php?gender=Male" class="stat-card male">
+                <span class="icon">👨</span>
+                <div class="number"><?php echo $male_total; ?></div>
+                <div class="label">👨 Total Male</div>
+            </a>
+            <a href="view_students.php?gender=Female" class="stat-card female">
+                <span class="icon">👩</span>
+                <div class="number"><?php echo $female_total; ?></div>
+                <div class="label">👩 Total Female</div>
+            </a>
+            <a href="view_staff.php?type=academic" class="stat-card academic">
+                <span class="icon">📚</span>
+                <div class="number"><?php echo $academic_staff; ?></div>
+                <div class="label">📚 Academic Staff</div>
+            </a>
+            <a href="view_staff.php?type=non_academic" class="stat-card non-academic">
+                <span class="icon">🛠️</span>
+                <div class="number"><?php echo $non_academic_staff; ?></div>
+                <div class="label">🛠️ Non-Academic Staff</div>
+            </a>
+        </div>
+        
+        <!-- ROW 2: Branch A Male/Female -->
+        <div class="stats-grid">
+            <a href="view_students.php?gender=Male&branch=SHINGE" class="stat-card male">
+                <span class="icon">👨</span>
+                <div class="number"><?php echo $male_branch_a; ?></div>
+                <div class="label">👨 A-Shinge (M)</div>
+            </a>
+            <a href="view_students.php?gender=Female&branch=SHINGE" class="stat-card female">
+                <span class="icon">👩</span>
+                <div class="number"><?php echo $female_branch_a; ?></div>
+                <div class="label">👩 A-Shinge (F)</div>
+            </a>
+            <a href="view_students.php?gender=Male&branch=SABUWA" class="stat-card male">
+                <span class="icon">👨</span>
+                <div class="number"><?php echo $male_branch_b; ?></div>
+                <div class="label">👨 B-Sabuwa (M)</div>
+            </a>
+            <a href="view_students.php?gender=Female&branch=SABUWA" class="stat-card female">
+                <span class="icon">👩</span>
+                <div class="number"><?php echo $female_branch_b; ?></div>
+                <div class="label">👩 B-Sabuwa (F)</div>
+            </a>
+        </div>
+        
+        <!-- ROW 3: Branch C Male/Female -->
+        <div class="stats-grid">
+            <a href="view_students.php?gender=Male&branch=TUDUN" class="stat-card male">
+                <span class="icon">👨</span>
+                <div class="number"><?php echo $male_branch_c; ?></div>
+                <div class="label">👨 C-Tudun (M)</div>
+            </a>
+            <a href="view_students.php?gender=Female&branch=TUDUN" class="stat-card female">
+                <span class="icon">👩</span>
+                <div class="number"><?php echo $female_branch_c; ?></div>
+                <div class="label">👩 C-Tudun (F)</div>
+            </a>
+        </div>
+        
+        <?php endif; ?>
+        
+        <!-- ============================================ -->
+        <!-- QUICK ACTIONS -->
+        <!-- ============================================ -->
         <div class="card">
             <h3><i class="fas fa-bolt" style="color:#f9a825;"></i> Quick Actions</h3>
             <div class="quick-grid">
                 
-                <?php if ($is_admin): ?>
+                <?php if ($is_admin || $is_provost): ?>
                     <a href="admin_result_entry.php" class="quick-card entry">
                         <i class="fas fa-edit"></i>
                         <strong>Result Entry</strong>
@@ -466,16 +680,10 @@ $current_date = date('l, F j, Y');
                         <strong>Result Slip</strong>
                         <small>Simple slip</small>
                     </a>
-                <?php elseif ($is_provost): ?>
-                    <a href="admin_result_slip_pro.php" class="quick-card slip-pro">
-                        <i class="fas fa-file-alt"></i>
-                        <strong>Result Slip Pro</strong>
-                        <small>Print result slip</small>
-                    </a>
-                    <a href="admin_result_slip.php" class="quick-card slip">
-                        <i class="fas fa-file-invoice"></i>
-                        <strong>Result Slip</strong>
-                        <small>Simple slip</small>
+                    <a href="admin_result_database.php" class="quick-card database">
+                        <i class="fas fa-database"></i>
+                        <strong>Result Database</strong>
+                        <small>All results</small>
                     </a>
                 <?php endif; ?>
                 

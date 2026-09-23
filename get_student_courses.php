@@ -1,7 +1,7 @@
 <?php
 session_start();
-include 'connect.php';
-include 'result_functions.php';
+require_once 'connect.php';
+require_once 'result_functions.php';
 
 if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'Exam Officer', 'Provost'])) {
     echo "<p style='color:red;'>Unauthorized</p>";
@@ -9,38 +9,76 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'Exam
 }
 
 $student_id = intval($_GET['student_id'] ?? 0);
-$combination = mysqli_real_escape_string($conn, $_GET['combination'] ?? '');
-$level = mysqli_real_escape_string($conn, $_GET['level'] ?? '');
-$semester = mysqli_real_escape_string($conn, $_GET['semester'] ?? '');
-$session = mysqli_real_escape_string($conn, $_GET['session'] ?? getSetting($conn, 'current_session'));
+$combination = $_GET['combination'] ?? '';
+$level = $_GET['level'] ?? '';          // Level ɗin da admin ya zaɓa
+$semester = $_GET['semester'] ?? '';
+$session = $_GET['session'] ?? getSetting($pdo, 'current_session');
 
-if (!$student_id) { echo "<p style='color:red;'>Student not selected.</p>"; exit(); }
+if (!$student_id) {
+    echo "<p style='color:red;'>Student not selected.</p>";
+    exit();
+}
 
-$student = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM students WHERE id = $student_id"));
-if (!$student) { echo "<p style='color:red;'>Student not found.</p>"; exit(); }
+// Samo bayanan dalibi
+$stmt = $pdo->prepare("SELECT * FROM students WHERE id = ?");
+$stmt->execute([$student_id]);
+$student = $stmt->fetch();
+
+if (!$student) {
+    echo "<p style='color:red;'>Student not found.</p>";
+    exit();
+}
+
+// Gane level na yanzu (don nunawa kawai)
+$current_level = getCurrentLevel($student['admission_year'], $student['programme_type'], $session);
+$grad_year = getGraduationYear($student['admission_year'], $student['programme_type']);
 
 // ============================================
-// SAMO COURSES - BABU status = 'Compulsory'
+// SAMO COURSES DAGA course_registrations
+// BISA LEVEL + SEMESTER + SESSION DA AKA ZAƊA
 // ============================================
-$courses = [];
-$cq = mysqli_query($conn, "SELECT * FROM courses 
-                           WHERE combination = '$combination' 
-                           AND level = '$level' 
-                           AND semester = '$semester'
-                           ORDER BY FIELD(category, 'EDU', 'GSE', 'PED', 'CSC', 'BIO', 'ISC', 'PHY', 'ENG', 'ECO', 'ARB', 'ISS', 'HAU', 'SOS'), 
-                           course_code");
-while ($c = mysqli_fetch_assoc($cq)) $courses[] = $c;
+$level_sql = buildLevelCondition($level, 'cr.level');
+$variants = getLevelVariants($level);
+
+$sql = "SELECT cr.*, 
+               COALESCE(c.credits, cr.credits, 0) AS course_credits,
+               c.category,
+               c.course_title AS course_title_from_courses
+        FROM course_registrations cr
+        LEFT JOIN courses c 
+            ON c.course_code = cr.course_code 
+            AND c.combination = ? 
+            AND c.level = ? 
+            AND c.semester = ?
+        WHERE cr.student_id = ?
+        AND $level_sql
+        AND cr.semester = ?
+        AND cr.academic_year = ?
+        AND cr.status IN ('registered', 'completed')
+        ORDER BY FIELD(c.category, 'EDU', 'GSE', 'PED', 'CSC', 'BIO', 'ISC', 'PHY', 'ENG', 'ECO', 'ARB', 'ISS', 'HAU', 'SOS'), 
+                 cr.course_code";
+
+$params = array_merge(
+    [$combination, $level, $semester, $student_id],
+    $variants,
+    [$semester, $session]
+);
+
+$stmt = $pdo->prepare($sql);
+$stmt->execute($params);
+$courses = $stmt->fetchAll();
 
 // ============================================
 // SAMO EXISTING RESULTS
 // ============================================
 $existing_results = [];
-$rq = mysqli_query($conn, "SELECT * FROM results 
-                           WHERE student_id = $student_id 
-                           AND level = '$level' 
-                           AND semester = '$semester' 
-                           AND session = '$session'");
-while ($r = mysqli_fetch_assoc($rq)) {
+$stmt = $pdo->prepare("SELECT * FROM results 
+                       WHERE student_id = ? 
+                       AND level = ? 
+                       AND semester = ? 
+                       AND session = ?");
+$stmt->execute([$student_id, $level, $semester, $session]);
+while ($r = $stmt->fetch()) {
     $existing_results[$r['course_code']] = $r;
 }
 
@@ -49,9 +87,9 @@ while ($r = mysqli_fetch_assoc($rq)) {
 // ============================================
 $carryovers = [];
 if (function_exists('getCarryOverCourses')) {
-    $co_result = getCarryOverCourses($conn, $student_id, $combination);
+    $co_result = getCarryOverCourses($pdo, $student_id, $combination);
     if ($co_result) {
-        while ($co = mysqli_fetch_assoc($co_result)) {
+        while ($co = $co_result->fetch()) {
             $carryovers[] = $co;
         }
     }
@@ -62,32 +100,40 @@ if (function_exists('getCarryOverCourses')) {
     <h3>📋 <?php echo htmlspecialchars($student['fullname']); ?></h3>
     <p><strong>Reg No:</strong> <?php echo htmlspecialchars($student['reg_no'] ?? $student['student_id']); ?></p>
     <p><strong>Combination:</strong> <?php echo htmlspecialchars($combination); ?></p>
-    <p><strong>Level:</strong> <?php echo htmlspecialchars($level); ?> | <strong>Semester:</strong> <?php echo htmlspecialchars($semester); ?></p>
-    <p><strong>Session:</strong> <?php echo htmlspecialchars($session); ?></p>
+    <p><strong>Level na Yanzu:</strong> <?php echo htmlspecialchars($current_level); ?> 
+       (Admission: <?php echo htmlspecialchars($student['admission_year']); ?>)</p>
+    <p><strong>Result ɗin da ake rubutawa:</strong> 
+       <span style="background:#2e7d32; color:white; padding:3px 10px; border-radius:5px; font-weight:700;">
+           <?php echo htmlspecialchars($level); ?> — <?php echo htmlspecialchars($semester); ?> — <?php echo htmlspecialchars($session); ?>
+       </span>
+    </p>
+    <p><strong>Graduation Year:</strong> <?php echo htmlspecialchars($grad_year); ?></p>
     <?php if (count($carryovers) > 0): ?>
-        <p style="color:#c62828; font-weight:700; margin-top:10px;">⚠️ Carry Over: <strong><?php echo count($carryovers); ?></strong></p>
+        <p style="color:#c62828; font-weight:700; margin-top:10px;">
+            ⚠️ Carry Over: <strong><?php echo count($carryovers); ?></strong>
+        </p>
     <?php endif; ?>
 </div>
 
 <?php if (count($courses) == 0): ?>
     <div style="text-align:center; padding:40px; background:#fff3e0; border-radius:10px; border-left:5px solid #f57c00; margin-bottom:20px;">
-        <h3 style="color:#e65100; margin-bottom:10px;">⚠️ No Courses Found</h3>
+        <h3 style="color:#e65100; margin-bottom:10px;">⚠️ Babu Courses</h3>
         <p style="color:#1a2e1a;">
-            No courses found for this Combination, Level, and Semester.<br>
-            Please check the following:
+            Babu courses ɗin da dalibin ya yi registration a wannan Level, Semester, da Session.
         </p>
-        <ul style="text-align:left; max-width:500px; margin:15px auto; color:#1a2e1a;">
+        <ul style="text-align:left; max-width:600px; margin:15px auto; color:#1a2e1a;">
             <li><strong>Combination:</strong> <?php echo htmlspecialchars($combination); ?></li>
             <li><strong>Level:</strong> <?php echo htmlspecialchars($level); ?></li>
             <li><strong>Semester:</strong> <?php echo htmlspecialchars($semester); ?></li>
+            <li><strong>Session:</strong> <?php echo htmlspecialchars($session); ?></li>
         </ul>
         <p style="color:#c62828; font-weight:700;">
-            Make sure the Courses table has entries for this combination, level, and semester.
+            Tabbatar cewa dalibin ya yi registration a <code>course_registrations</code> table.
         </p>
     </div>
 <?php endif; ?>
 
-<form method="POST">
+<form method="POST" action="admin_result_entry.php">
     <input type="hidden" name="student_id" value="<?php echo $student_id; ?>">
     <input type="hidden" name="combination" value="<?php echo htmlspecialchars($combination); ?>">
     <input type="hidden" name="level" value="<?php echo htmlspecialchars($level); ?>">
@@ -109,13 +155,16 @@ if (function_exists('getCarryOverCourses')) {
             </thead>
             <tbody>
                 <?php foreach ($carryovers as $c): ?>
-                <tr style="background:#ffebee;" data-course="<?php echo htmlspecialchars($c['course_code']); ?>" data-credits="<?php echo $c['credit_units']; ?>">
+                <tr style="background:#ffebee;" 
+                    data-course="<?php echo htmlspecialchars($c['course_code']); ?>" 
+                    data-credits="<?php echo $c['credit_units']; ?>">
                     <td><strong><?php echo htmlspecialchars($c['course_code']); ?></strong></td>
                     <td><?php echo htmlspecialchars($c['course_title']); ?></td>
                     <td><?php echo $c['credit_units']; ?></td>
                     <td><?php echo htmlspecialchars($c['session']); ?></td>
                     <td>
-                        <input type="number" name="scores[<?php echo $c['course_code']; ?>]" 
+                        <input type="number" 
+                               name="scores[<?php echo $c['course_code']; ?>]" 
                                class="score-input" min="0" max="100" value=""
                                onchange="autoGrade(this); calculateTotal();">
                     </td>
@@ -128,7 +177,9 @@ if (function_exists('getCarryOverCourses')) {
     
     <?php if (count($courses) > 0): ?>
     <div class="card">
-        <h3 style="color:#0d2818; margin-bottom:15px;">📚 Current Semester Courses</h3>
+        <h3 style="color:#0d2818; margin-bottom:15px;">
+            📚 <?php echo htmlspecialchars($level); ?> — <?php echo htmlspecialchars($semester); ?> — <?php echo htmlspecialchars($session); ?>
+        </h3>
         <table class="result-table">
             <thead>
                 <tr>
@@ -143,19 +194,23 @@ if (function_exists('getCarryOverCourses')) {
             </thead>
             <tbody>
                 <?php foreach ($courses as $c): 
+                    $credits = $c['course_credits'] ?? $c['credit_units'] ?? 0;
+                    $title = $c['course_title_from_courses'] ?? $c['course_title'] ?? '';
                     $existing_score = $existing_results[$c['course_code']]['score'] ?? '';
                     $existing_grade = $existing_results[$c['course_code']]['grade'] ?? '—';
                     $existing_point = $existing_results[$c['course_code']]['grade_point'] ?? 0;
                     $existing_remark = $existing_results[$c['course_code']]['remark'] ?? '—';
                 ?>
-                <tr data-course="<?php echo htmlspecialchars($c['course_code']); ?>" data-credits="<?php echo $c['credits']; ?>">
+                <tr data-course="<?php echo htmlspecialchars($c['course_code']); ?>" 
+                    data-credits="<?php echo $credits; ?>">
                     <td><strong><?php echo htmlspecialchars($c['course_code']); ?></strong></td>
-                    <td><?php echo htmlspecialchars($c['course_title']); ?></td>
-                    <td class="center"><?php echo $c['credits']; ?></td>
+                    <td><?php echo htmlspecialchars($title); ?></td>
+                    <td class="center"><?php echo $credits; ?></td>
                     <td class="center">
-                        <input type="number" name="scores[<?php echo $c['course_code']; ?>]" 
+                        <input type="number" 
+                               name="scores[<?php echo $c['course_code']; ?>]" 
                                class="score-input" min="0" max="100" 
-                               value="<?php echo $existing_score; ?>"
+                               value="<?php echo htmlspecialchars($existing_score); ?>"
                                onchange="autoGrade(this); calculateTotal();"
                                onkeyup="autoGrade(this); calculateTotal();">
                     </td>
@@ -170,7 +225,6 @@ if (function_exists('getCarryOverCourses')) {
     <?php endif; ?>
     
     <?php if (count($courses) > 0 || count($carryovers) > 0): ?>
-    <!-- TOTAL SUMMARY -->
     <div class="total-summary">
         <div class="summary-box">
             <div class="label">Total Courses</div>
@@ -186,86 +240,9 @@ if (function_exists('getCarryOverCourses')) {
         </div>
     </div>
     
-    <button type="submit" name="save_single" class="btn btn-green" style="font-size:1rem; padding:14px 40px; margin-top:15px;">
+    <button type="submit" name="save_single" class="btn btn-green" 
+            style="font-size:1rem; padding:14px 40px; margin-top:15px;">
         <i class="fas fa-save"></i> Save All Results
     </button>
     <?php endif; ?>
 </form>
-
-<script>
-function autoGrade(input) {
-    var score = parseInt(input.value) || 0;
-    var grade = 'F'; var cls = 'grade-F'; var point = 0.0; var remark = 'Fail';
-    
-    if (score >= 70) { grade = 'A'; cls = 'grade-A'; point = 4.0; remark = 'Distinction'; }
-    else if (score >= 60) { grade = 'B'; cls = 'grade-B'; point = 3.0; remark = 'Credit'; }
-    else if (score >= 50) { grade = 'C'; cls = 'grade-C'; point = 2.0; remark = 'Merit'; }
-    else if (score >= 45) { grade = 'D'; cls = 'grade-D'; point = 1.0; remark = 'Pass'; }
-    else if (score >= 40) { grade = 'E'; cls = 'grade-E'; point = 0.5; remark = 'Lower Pass'; }
-    
-    var tr = input.closest('tr');
-    tr.querySelector('.grade-display').innerHTML = '<span class="grade-badge ' + cls + '">' + grade + '</span>';
-    tr.querySelector('.point-display').textContent = point.toFixed(1);
-    tr.querySelector('.remark-display').textContent = remark;
-    tr.dataset.point = point;
-}
-
-function calculateTotal() {
-    var totalUnits = 0;
-    var totalPoints = 0;
-    
-    document.querySelectorAll('tr[data-course]').forEach(function(tr) {
-        var score = tr.querySelector('.score-input').value;
-        var credits = parseInt(tr.dataset.credits) || 0;
-        var point = parseFloat(tr.dataset.point) || 0;
-        
-        if (score !== '' && point > 0) {
-            totalUnits += credits;
-            totalPoints += point * credits;
-        }
-    });
-    
-    document.getElementById('totalUnits').textContent = totalUnits;
-    var gpa = totalUnits > 0 ? (totalPoints / totalUnits) : 0;
-    document.getElementById('gpa').textContent = gpa.toFixed(2);
-}
-
-// Run on page load
-document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('.score-input').forEach(function(input) {
-        if (input.value !== '') {
-            autoGrade(input);
-        }
-    });
-    calculateTotal();
-});
-</script>
-
-<style>
-.student-info-box { background:linear-gradient(135deg, #e8f5e9, #c8e6c9); padding:20px; border-radius:10px; margin-bottom:20px; border-left:5px solid #2e7d32; }
-.student-info-box h3 { color:#0d2818; margin-bottom:10px; }
-.student-info-box p { color:#1a2e1a; margin:5px 0; font-size:0.9rem; }
-.carryover-box { background:#ffebee; padding:20px; border-radius:10px; margin-bottom:20px; border-left:5px solid #c62828; }
-.carryover-box h3 { color:#c62828; margin-bottom:15px; }
-.card { background:white; padding:25px; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,0.05); margin-bottom:20px; }
-.result-table { width:100%; border-collapse:collapse; margin-bottom:15px; }
-.result-table th { background:#0d2818; color:white; padding:10px; text-align:left; font-size:0.8rem; }
-.result-table td { padding:10px; border-bottom:1px solid #eee; font-size:0.9rem; }
-.result-table tr:hover td { background:#f8faf8; }
-.result-table .center { text-align:center; }
-.score-input { width:80px; padding:8px; border:2px solid #dce8dc; border-radius:6px; text-align:center; font-weight:700; font-size:0.95rem; }
-.score-input:focus { border-color:#2e7d32; outline:none; }
-.grade-badge { padding:4px 12px; border-radius:15px; font-weight:700; font-size:0.85rem; }
-.grade-A { background:#e8f5e9; color:#2e7d32; }
-.grade-B { background:#e3f2fd; color:#0d47a1; }
-.grade-C { background:#fff3e0; color:#e65100; }
-.grade-D { background:#f3e5f5; color:#6a1b9a; }
-.grade-E { background:#fce4ec; color:#c2185b; }
-.grade-F { background:#ffebee; color:#c62828; }
-.total-summary { display:grid; grid-template-columns:repeat(3, 1fr); gap:15px; margin-top:20px; margin-bottom:15px; }
-.total-summary .summary-box { border:2px solid #0d2818; padding:15px; text-align:center; border-radius:8px; background:#f8faf8; }
-.total-summary .summary-box.gpa { border-color:#2e7d32; background:#e8f5e9; }
-.total-summary .summary-box .label { font-size:0.75rem; text-transform:uppercase; color:#6a8f6a; font-weight:700; }
-.total-summary .summary-box .value { font-size:1.8rem; font-weight:900; color:#0d2818; line-height:1; margin-top:5px; }
-.total-summary .summary-box.gpa .value { color:#2e7d32; }
-</style>

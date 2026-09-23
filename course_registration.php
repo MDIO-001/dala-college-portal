@@ -24,6 +24,7 @@ if (!$student) {
 }
 
 $student_branch = $student['branch_code'] ?? 'SHINGE';
+$student_programme = strtoupper(trim($student['programme'] ?? 'NCE'));
 
 // MUHIMMI: Yi amfani da 'combination' idan akwai, in ba haka ba 'course'
 $student_combination = !empty($student['combination']) 
@@ -31,11 +32,28 @@ $student_combination = !empty($student['combination'])
     : trim($student['course']);
 
 // ============================================
+// ƘAYYADE LEVELS BISA GA PROGRAMME
+// ============================================
+if ($student_programme == 'NCE') {
+    $levels = ['NCE I', 'NCE II', 'NCE III'];
+    $default_level = 'NCE I';
+} elseif ($student_programme == 'DEGREE' || $student_programme == 'DEG') {
+    $levels = ['400 Level', '500 Level'];
+    $default_level = '400 Level';
+} elseif ($student_programme == 'ENTREPRENEURSHIP' || $student_programme == 'ENT') {
+    $levels = ['ENTREPRENEURSHIP'];
+    $default_level = 'ENTREPRENEURSHIP';
+} else {
+    $levels = ['NCE I', 'NCE II', 'NCE III'];
+    $default_level = 'NCE I';
+}
+
+// ============================================
 // GET SELECTED LEVEL & SEMESTER
 // ============================================
-$selected_level = isset($_POST['level']) ? mysqli_real_escape_string($conn, $_POST['level']) : 'NCEI';
+$selected_level = isset($_POST['level']) ? mysqli_real_escape_string($conn, $_POST['level']) : $default_level;
 $selected_semester = isset($_POST['semester']) ? mysqli_real_escape_string($conn, $_POST['semester']) : 'First Semester';
-$academic_year = '2024/2025';
+$academic_year = '2026/2027';
 
 // ============================================
 // HANDLE COURSE REGISTRATION
@@ -86,7 +104,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['register_courses'])) {
                     $credits, '$student_branch', 'registered', CURDATE()
                 )";
                 
-                // Yin amfani da try/catch domin kama kuskuren Duplicate entry
                 try {
                     if (mysqli_query($conn, $insert)) {
                         $registered++;
@@ -104,20 +121,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['register_courses'])) {
         if ($registered > 0) {
             $success = "✅ $registered course(s) registered successfully!";
             if ($already > 0) {
-                $success .= "<br>⚠️ $already course(s) already registered a wannan level/semester.";
+                $success .= "<br>⚠️ $already course(s) already registered for this level/semester.";
             }
             if ($failed > 0) {
                 $success .= "<br>❌ $failed course(s) failed to register.";
             }
         } else {
             if ($already > 0) {
-                $error = "⚠️ Duk courses ɗin da ka zaɓa an riga an yi rijista su a wannan level da semester.";
+                $error = "⚠️ All selected courses have already been registered for this level and semester.";
             } else {
                 $error = '❌ No new courses were registered. Please try again.';
             }
         }
     }
 }
+
 // ============================================
 // HANDLE DROP COURSE
 // ============================================
@@ -179,7 +197,6 @@ if (!empty($student['photo']) && file_exists("uploads/students/" . $student['pho
     $photo_path = "uploads/students/" . $student['reg_no'] . ".png";
 }
 
-$levels = ['NCEI', 'NCEII', 'NCEIII'];
 $semesters = ['First Semester', 'Second Semester'];
 ?>
 <!DOCTYPE html>
@@ -460,6 +477,9 @@ $semesters = ['First Semester', 'Second Semester'];
             font-weight: 600;
         }
         .registered-list .btn-drop:hover { background: #b71c1c; }
+        
+        .badge { display: inline-block; padding: 3px 12px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; }
+        .badge-approved { background: #e8f5e9; color: #2e7d32; }
         
         /* ============ PRINT HEADER ============ */
         .print-header {
@@ -786,7 +806,7 @@ $semesters = ['First Semester', 'Second Semester'];
         <h1><i class="fas fa-book" style="color:#2e7d32;"></i> Course Registration</h1>
         <p class="sub">
             Combination: <strong><?php echo htmlspecialchars($student_combination); ?></strong> | 
-            Zaɓi Level da Semester domin ganin courses ɗin da suka dace
+            Select Level and Semester to view available courses
         </p>
 
         <?php if ($success): ?>
@@ -798,7 +818,7 @@ $semesters = ['First Semester', 'Second Semester'];
 
         <form method="POST" action="" class="filter-box no-print">
             <div class="form-group">
-                <label><i class="fas fa-layer-group"></i> Zaɓi Level</label>
+                <label><i class="fas fa-layer-group"></i> Select Level</label>
                 <select name="level">
                     <?php foreach ($levels as $lvl): ?>
                         <option value="<?php echo $lvl; ?>" <?php echo ($selected_level == $lvl) ? 'selected' : ''; ?>>
@@ -808,7 +828,7 @@ $semesters = ['First Semester', 'Second Semester'];
                 </select>
             </div>
             <div class="form-group">
-                <label><i class="fas fa-calendar-alt"></i> Zaɓi Semester</label>
+                <label><i class="fas fa-calendar-alt"></i> Select Semester</label>
                 <select name="semester">
                     <?php foreach ($semesters as $sem): ?>
                         <option value="<?php echo $sem; ?>" <?php echo ($selected_semester == $sem) ? 'selected' : ''; ?>>
@@ -818,7 +838,7 @@ $semesters = ['First Semester', 'Second Semester'];
                 </select>
             </div>
             <button type="submit" class="btn-filter">
-                <i class="fas fa-filter"></i> Nuna Courses
+                <i class="fas fa-filter"></i> View Courses
             </button>
         </form>
 
@@ -844,7 +864,6 @@ $semesters = ['First Semester', 'Second Semester'];
             <div class="course-list">
                 <?php if ($courses_result && mysqli_num_rows($courses_result) > 0): ?>
                     <?php 
-                    // Muna buƙatar sake gudanar da query ɗin domin mu iya amfani da shi sau biyu
                     mysqli_data_seek($courses_result, 0);
                     while ($course = mysqli_fetch_assoc($courses_result)): 
                         $is_registered = in_array($course['course_code'], $registered_courses);
@@ -867,8 +886,8 @@ $semesters = ['First Semester', 'Second Semester'];
                 <?php else: ?>
                     <div style="grid-column: 1/-1; text-align:center; padding:40px; color:#6a8f6a;">
                         <i class="fas fa-book" style="font-size:3rem; display:block; margin-bottom:10px; color:#dce8dc;"></i>
-                        <p>Babu courses da suka dace da <strong><?php echo htmlspecialchars($student_combination); ?></strong> - <strong><?php echo $selected_level; ?></strong> - <strong><?php echo $selected_semester; ?></strong></p>
-                        <p style="font-size:0.85rem;">Zaɓi wani level ko semester.</p>
+                        <p>No courses found for <strong><?php echo htmlspecialchars($student_combination); ?></strong> - <strong><?php echo $selected_level; ?></strong> - <strong><?php echo $selected_semester; ?></strong></p>
+                        <p style="font-size:0.85rem;">Try selecting a different level or semester.</p>
                     </div>
                 <?php endif; ?>
             </div>
@@ -899,7 +918,6 @@ $semesters = ['First Semester', 'Second Semester'];
                     <?php 
                     $i = 1;
                     $total_units = 0;
-                    // Muna buƙatar sake gudanar da query ɗin registered
                     $reg_result = mysqli_query($conn, $registered_query);
                     while ($reg = mysqli_fetch_assoc($reg_result)): 
                         $total_units += $reg['credits'];

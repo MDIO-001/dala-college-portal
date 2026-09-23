@@ -40,8 +40,12 @@ if ($ss_result) {
 // ============================================
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
     
-    $fullname = mysqli_real_escape_string($conn, trim($_POST['fullname']));
+    // ============================================
+    // MUHIMMANCI: BA A CANZA SUNA A NAN
+    // Staff ne kawai ke iya canza suna a Admin Dashboard
+    // ============================================
     $phone = mysqli_real_escape_string($conn, trim($_POST['phone']));
+    $email = mysqli_real_escape_string($conn, trim($_POST['email'] ?? ''));
     $dob = mysqli_real_escape_string($conn, $_POST['dob']);
     $gender = mysqli_real_escape_string($conn, $_POST['gender']);
     $address = mysqli_real_escape_string($conn, trim($_POST['address']));
@@ -60,71 +64,88 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
     $sponsor_name = mysqli_real_escape_string($conn, trim($_POST['sponsor_name']));
     $sponsor_address = mysqli_real_escape_string($conn, trim($_POST['sponsor_address']));
     
-    $update_query = "UPDATE students SET 
-        fullname = '$fullname',
-        phone = '$phone',
-        dob = '$dob',
-        gender = '$gender',
-        address = '$address',
-        guardian_name = '$guardian_name',
-        guardian_phone = '$guardian_phone',
-        guardian_address = '$guardian_address',
-        marital_status = '$marital_status',
-        religion = '$religion',
-        state_of_origin = '$state_of_origin',
-        nationality = '$nationality',
-        place_of_birth = '$place_of_birth',
-        lga = '$lga',
-        permanent_address = '$permanent_address',
-        exam_type = '$exam_type',
-        sponsorship_type = '$sponsorship_type',
-        sponsor_name = '$sponsor_name',
-        sponsor_address = '$sponsor_address'";
-    
-    for ($i = 1; $i <= 5; $i++) {
-        $subject = mysqli_real_escape_string($conn, trim($_POST['subject'.$i] ?? ''));
-        $grade = mysqli_real_escape_string($conn, $_POST['grade'.$i] ?? '');
-        $month = mysqli_real_escape_string($conn, trim($_POST['month'.$i] ?? ''));
-        $year = mysqli_real_escape_string($conn, trim($_POST['year'.$i] ?? ''));
-        $centre = mysqli_real_escape_string($conn, trim($_POST['centre'.$i] ?? ''));
-        $cand = mysqli_real_escape_string($conn, trim($_POST['cand'.$i] ?? ''));
-        
-        $update_query .= ", subject$i = '$subject', grade$i = '$grade'";
-        $update_query .= ", month$i = '$month', year$i = '$year'";
-        $update_query .= ", centre$i = '$centre', cand$i = '$cand'";
+    // ============================================
+    // DUBA EMAIL IDAN YA RIGA YA KASANCE
+    // ============================================
+    $email_error = false;
+    if (!empty($email)) {
+        $check_email = mysqli_query($conn, "SELECT id FROM students WHERE email = '$email' AND id != $student_id");
+        if ($check_email && mysqli_num_rows($check_email) > 0) {
+            $error = "❌ Wannan email ɗin an riga an yi amfani da shi. Don Allah ka yi amfani da wani.";
+            $email_error = true;
+        }
     }
     
-    $update_query .= ", status = 'pending' WHERE id = $student_id";
-    
-    if (mysqli_query($conn, $update_query)) {
+    if (!$email_error) {
+        // ============================================
+        // UPDATE - BA A HADA DA fullname BA
+        // ============================================
+        $update_query = "UPDATE students SET 
+            phone = '$phone',
+            email = '$email',
+            dob = '$dob',
+            gender = '$gender',
+            address = '$address',
+            guardian_name = '$guardian_name',
+            guardian_phone = '$guardian_phone',
+            guardian_address = '$guardian_address',
+            marital_status = '$marital_status',
+            religion = '$religion',
+            state_of_origin = '$state_of_origin',
+            nationality = '$nationality',
+            place_of_birth = '$place_of_birth',
+            lga = '$lga',
+            permanent_address = '$permanent_address',
+            exam_type = '$exam_type',
+            sponsorship_type = '$sponsorship_type',
+            sponsor_name = '$sponsor_name',
+            sponsor_address = '$sponsor_address'";
         
-        mysqli_query($conn, "DELETE FROM secondary_schools WHERE student_id = $student_id");
-        if (isset($_POST['sec_school_name']) && is_array($_POST['sec_school_name'])) {
-            for ($i = 0; $i < count($_POST['sec_school_name']); $i++) {
-                $sec_name = mysqli_real_escape_string($conn, trim($_POST['sec_school_name'][$i] ?? ''));
-                $sec_address = mysqli_real_escape_string($conn, trim($_POST['sec_school_address'][$i] ?? ''));
-                $sec_from = mysqli_real_escape_string($conn, trim($_POST['sec_from'][$i] ?? ''));
-                $sec_to = mysqli_real_escape_string($conn, trim($_POST['sec_to'][$i] ?? ''));
-                
-                if (!empty($sec_name)) {
-                    $insert = "INSERT INTO secondary_schools (student_id, school_name, school_address, from_year, to_year) 
-                               VALUES ($student_id, '$sec_name', '$sec_address', '$sec_from', '$sec_to')";
-                    mysqli_query($conn, $insert);
-                }
-            }
+        for ($i = 1; $i <= 5; $i++) {
+            $subject = mysqli_real_escape_string($conn, trim($_POST['subject'.$i] ?? ''));
+            $grade = mysqli_real_escape_string($conn, $_POST['grade'.$i] ?? '');
+            $month = mysqli_real_escape_string($conn, trim($_POST['month'.$i] ?? ''));
+            $year = mysqli_real_escape_string($conn, trim($_POST['year'.$i] ?? ''));
+            $centre = mysqli_real_escape_string($conn, trim($_POST['centre'.$i] ?? ''));
+            $cand = mysqli_real_escape_string($conn, trim($_POST['cand'.$i] ?? ''));
+            
+            $update_query .= ", subject$i = '$subject', grade$i = '$grade'";
+            $update_query .= ", month$i = '$month', year$i = '$year'";
+            $update_query .= ", centre$i = '$centre', cand$i = '$cand'";
         }
         
-        $success = "✅ Application form saved successfully!";
+        $update_query .= ", status = 'pending' WHERE id = $student_id";
         
-        $query = "SELECT * FROM students WHERE id = $student_id";
-        $result = mysqli_query($conn, $query);
-        $student = mysqli_fetch_assoc($result);
-        
-        $sec_schools = [];
-        $ss_result = mysqli_query($conn, "SELECT * FROM secondary_schools WHERE student_id = $student_id ORDER BY id");
-        while ($row = mysqli_fetch_assoc($ss_result)) $sec_schools[] = $row;
-    } else {
-        $error = "❌ Error: " . mysqli_error($conn);
+        if (mysqli_query($conn, $update_query)) {
+            
+            mysqli_query($conn, "DELETE FROM secondary_schools WHERE student_id = $student_id");
+            if (isset($_POST['sec_school_name']) && is_array($_POST['sec_school_name'])) {
+                for ($i = 0; $i < count($_POST['sec_school_name']); $i++) {
+                    $sec_name = mysqli_real_escape_string($conn, trim($_POST['sec_school_name'][$i] ?? ''));
+                    $sec_address = mysqli_real_escape_string($conn, trim($_POST['sec_school_address'][$i] ?? ''));
+                    $sec_from = mysqli_real_escape_string($conn, trim($_POST['sec_from'][$i] ?? ''));
+                    $sec_to = mysqli_real_escape_string($conn, trim($_POST['sec_to'][$i] ?? ''));
+                    
+                    if (!empty($sec_name)) {
+                        $insert = "INSERT INTO secondary_schools (student_id, school_name, school_address, from_year, to_year) 
+                                   VALUES ($student_id, '$sec_name', '$sec_address', '$sec_from', '$sec_to')";
+                        mysqli_query($conn, $insert);
+                    }
+                }
+            }
+            
+            $success = "✅ Application form saved successfully!";
+            
+            $query = "SELECT * FROM students WHERE id = $student_id";
+            $result = mysqli_query($conn, $query);
+            $student = mysqli_fetch_assoc($result);
+            
+            $sec_schools = [];
+            $ss_result = mysqli_query($conn, "SELECT * FROM secondary_schools WHERE student_id = $student_id ORDER BY id");
+            while ($row = mysqli_fetch_assoc($ss_result)) $sec_schools[] = $row;
+        } else {
+            $error = "❌ Error: " . mysqli_error($conn);
+        }
     }
 }
 
@@ -181,9 +202,6 @@ $middlename = isset($name_parts[2]) ? implode(' ', array_slice($name_parts, 2)) 
         
         .container > * { position: relative; z-index: 1; }
         
-        /* ============================================ */
-        /* HEADER */
-        /* ============================================ */
         .form-header { 
             border-bottom: 3px double #2e7d32; 
             padding-bottom: 15px; 
@@ -275,6 +293,8 @@ $middlename = isset($name_parts[2]) ? implode(' ', array_slice($name_parts, 2)) 
         .form-field label { font-weight:600; color:#0d2818; font-size:0.85rem; margin-bottom:3px; }
         .form-field input, .form-field select { padding:8px 12px; border:1px solid #dce8dc; border-radius:6px; font-size:0.9rem; }
         .form-field input:focus, .form-field select:focus { border-color:#2e7d32; outline:none; }
+        .form-field input:disabled { background:#f0f0f0; cursor:not-allowed; color:#555; }
+        .form-field small { color:#c62828; font-size:0.72rem; margin-top:2px; font-weight:600; }
         
         .photo-section { display:flex; align-items:center; gap:20px; padding:15px; background:#f5faf5; border-radius:12px; margin-bottom:20px; flex-wrap:wrap; }
         .photo-section .photo-box { width:100px; height:120px; border:3px solid #2e7d32; border-radius:10px; overflow:hidden; background:#e8f5e9; display:flex; align-items:center; justify-content:center; }
@@ -306,9 +326,6 @@ $middlename = isset($name_parts[2]) ? implode(' ', array_slice($name_parts, 2)) 
         .btn-back { padding:12px 30px; border:2px solid #2e7d32; color:#2e7d32; border-radius:8px; text-decoration:none; font-weight:700; }
         .btn-back:hover { background:#2e7d32; color:white; }
         
-        /* ============================================ */
-        /* PRINT STYLES - A4 PORTRAIT */
-        /* ============================================ */
         @media print {
             .topbar, .action-buttons, footer, .no-print, 
             .btn-save, .btn-print, .btn-back, 
@@ -340,7 +357,6 @@ $middlename = isset($name_parts[2]) ? implode(' ', array_slice($name_parts, 2)) 
                 print-color-adjust: exact;
             }
             
-            /* HEADER A PRINT */
             .form-header { 
                 padding-bottom: 10px; 
                 margin-bottom: 15px; 
@@ -605,29 +621,49 @@ $middlename = isset($name_parts[2]) ? implode(' ', array_slice($name_parts, 2)) 
                 </div>
             </div>
 
+            <!-- ============================================ -->
+            <!-- NAME FIELDS - DISABLED (STAFF KAWAI ZAI IYA CANZA) -->
+            <!-- ============================================ -->
             <div class="form-row three-col">
                 <div class="form-field">
                     <label>Surname <span style="color:red;">*</span></label>
-                    <input type="text" name="surname" value="<?php echo htmlspecialchars($surname); ?>" required>
+                    <input type="text" name="surname" value="<?php echo htmlspecialchars($surname); ?>" disabled>
+                    <small>⚠️ Ba za ka iya canza suna ba. Ka tuntuɓi Admin.</small>
                 </div>
                 <div class="form-field">
                     <label>First Name <span style="color:red;">*</span></label>
-                    <input type="text" name="firstname" value="<?php echo htmlspecialchars($firstname); ?>" required>
+                    <input type="text" name="firstname" value="<?php echo htmlspecialchars($firstname); ?>" disabled>
+                    <small>⚠️ Ba za ka iya canza suna ba.</small>
                 </div>
                 <div class="form-field">
                     <label>Middle Name</label>
-                    <input type="text" name="middlename" value="<?php echo htmlspecialchars($middlename); ?>">
+                    <input type="text" name="middlename" value="<?php echo htmlspecialchars($middlename); ?>" disabled>
+                    <small>⚠️ Ba za ka iya canza suna ba.</small>
                 </div>
             </div>
 
             <div class="form-row">
                 <div class="form-field">
                     <label>Full Name (Combined) <span style="color:red;">*</span></label>
-                    <input type="text" name="fullname" value="<?php echo htmlspecialchars($student['fullname'] ?? ''); ?>" required>
+                    <input type="text" name="fullname" value="<?php echo htmlspecialchars($student['fullname'] ?? ''); ?>" disabled>
+                    <small>⚠️ Ba za ka iya canza suna ba. Ka tuntuɓi Admin.</small>
                 </div>
                 <div class="form-field">
                     <label>Phone Number <span style="color:red;">*</span></label>
                     <input type="tel" name="phone" value="<?php echo htmlspecialchars($student['phone'] ?? ''); ?>" required>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-field">
+                    <label>Email Address</label>
+                    <input type="email" name="email" value="<?php echo htmlspecialchars($student['email'] ?? ''); ?>" placeholder="example@email.com">
+                    <small style="color:#6a8f6a; font-weight:400;">Za ka iya gyara email ɗinka</small>
+                </div>
+                <div class="form-field">
+                    <label>Username (Login)</label>
+                    <input type="text" value="<?php echo htmlspecialchars($student['username'] ?? ''); ?>" disabled>
+                    <small style="color:#6a8f6a; font-weight:400;">Ba za a iya canza username ba</small>
                 </div>
             </div>
 
@@ -783,7 +819,7 @@ $middlename = isset($name_parts[2]) ? implode(' ', array_slice($name_parts, 2)) 
                             <td>
                                 <select name="grade<?php echo $i; ?>">
                                     <option value="">--</option>
-                                    <?php foreach (['A','B','C','D','E','F'] as $g): ?>
+                                    <?php foreach (['A','B','C','D','E','F','A1','A2','B2','B3','C4','F9','E8','D7','C5','C6','Awaiting','Absent'] as $g): ?>
                                         <option value="<?php echo $g; ?>" <?php echo ($student['grade'.$i] ?? '') == $g ? 'selected' : ''; ?>><?php echo $g; ?></option>
                                     <?php endforeach; ?>
                                 </select>

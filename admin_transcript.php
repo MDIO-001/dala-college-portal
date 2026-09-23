@@ -2,11 +2,38 @@
 session_start();
 include 'connect.php';
 include 'result_functions.php';
+include 'check_role.php';
 
-if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', ['admin', 'exam_officer'])) {
+// ============================================
+// DEBUG (Cire bayan an gama)
+// ============================================
+echo "<pre style='background:#fff3e0; padding:15px; border:2px solid #f57c00; margin-bottom:20px;'>";
+echo "<strong>DEBUG INFO:</strong><br>";
+echo "user_id: " . ($_SESSION['user_id'] ?? 'NOT SET') . "<br>";
+echo "role: " . ($_SESSION['role'] ?? 'NOT SET') . "<br>";
+echo "position: " . ($_SESSION['position'] ?? 'NOT SET') . "<br>";
+echo "canAccessResultSystem(): " . (canAccessResultSystem() ? 'TRUE' : 'FALSE') . "<br>";
+echo "canAccessTranscript(): " . (canAccessTranscript() ? 'TRUE' : 'FALSE') . "<br>";
+echo "</pre>";
+
+if (!isset($_SESSION['user_id'])) {
     header('Location: login.php');
     exit();
 }
+
+if (!canAccessTranscript()) {
+    header('Location: staff_dashboard.php?error=access_denied');
+    exit();
+}
+
+// ============================================
+// NEMO ROLE DIN MAI AMFANI
+// ============================================
+$user_role = $_SESSION['role'] ?? '';
+$position = strtolower($_SESSION['position'] ?? '');
+$is_admin = ($user_role == 'admin');
+$is_provost = ($user_role == 'Provost') || ($position == 'provost');
+$is_exam_officer = ($user_role == 'Exam Officer') || ($position == 'exam officer');
 
 $admin_name = $_SESSION['fullname'] ?? 'Admin';
 
@@ -92,7 +119,7 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Transcript - Admin</title>
+    <title>Transcript</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * { margin:0; padding:0; box-sizing:border-box; }
@@ -107,6 +134,8 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
         .topbar nav a:hover { background:#2e7d32; }
         .topbar nav .logout { background:#c62828; color:white !important; }
         .topbar .admin-badge { background:#c62828; color:white; padding:6px 18px; border-radius:20px; font-size:0.8rem; font-weight:600; }
+        .topbar .provost-badge { background:#ffd54f; color:#0d2818; padding:6px 18px; border-radius:20px; font-size:0.8rem; font-weight:800; }
+        .topbar .exam-badge { background:#2e7d32; color:white; padding:6px 18px; border-radius:20px; font-size:0.8rem; font-weight:600; }
         
         .result-nav { background:white; padding:15px; border-radius:12px; margin-bottom:20px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; box-shadow:0 2px 10px rgba(0,0,0,0.05); }
         .result-nav .label { font-weight:700; color:#0d2818; margin-right:10px; font-size:0.85rem; }
@@ -321,29 +350,60 @@ $students_list = mysqli_query($conn, "SELECT id, reg_no, fullname, combination, 
         <div class="topbar no-print">
             <div>
                 <span class="logo-title">DALA <span>COLLEGE</span></span>
-                <span class="logo-sub">Admin Panel</span>
+                <span class="logo-sub">Result System</span>
             </div>
             <nav>
-                <a href="admin_dashboard.php">Dashboard</a>
+                <?php if ($is_admin): ?>
+                    <a href="admin_dashboard.php">Dashboard</a>
+                <?php else: ?>
+                    <a href="staff_dashboard.php">Dashboard</a>
+                <?php endif; ?>
                 <a href="logout.php" class="logout">Logout</a>
             </nav>
             <div>
-                <span class="admin-badge">👤 <?php echo htmlspecialchars($admin_name); ?></span>
+                <?php if ($is_admin): ?>
+                    <span class="admin-badge">👤 <?php echo htmlspecialchars($admin_name); ?> (ADMIN)</span>
+                <?php elseif ($is_provost): ?>
+                    <span class="provost-badge">👑 <?php echo htmlspecialchars($admin_name); ?> (PROVOST)</span>
+                <?php elseif ($is_exam_officer): ?>
+                    <span class="exam-badge">📚 <?php echo htmlspecialchars($admin_name); ?> (EXAM OFFICER)</span>
+                <?php endif; ?>
             </div>
         </div>
 
         <div class="result-nav no-print">
             <span class="label">📊 RESULT SYSTEM:</span>
-            <a href="admin_course_structure.php" class="r-course">COURSE_STRUCTURE</a>
-            <a href="admin_grade_setup.php" class="r-grade">GRADE_SETUP</a>
-            <a href="admin_result_entry.php" class="r-entry">RESULT_ENTRY</a>
-            <a href="admin_result_slip.php" class="r-slip">RESULT_SLIP</a>
-            <a href="admin_result_slip_pro.php" class="r-slip-pro">RESULT_SLIP_PRO</a>
-            <a href="admin_transcript.php" class="r-transcript">TRANSCRIPT</a>
-            <a href="admin_final_result.php" class="r-final">FINAL_RESULT</a>
-            <a href="admin_settings.php" class="r-settings">SETTINGS</a>
-            <a href="admin_result_database.php" class="r-database">RESULT_DATABASE</a>
-            <a href="admin_statement_of_result.php" class="r-statement">STATEMENT_OF_RESULT</a>
+            
+            <?php if ($is_admin): ?>
+                <a href="admin_course_structure.php" class="r-course">COURSE_STRUCTURE</a>
+                <a href="admin_grade_setup.php" class="r-grade">GRADE_SETUP</a>
+                <a href="admin_result_entry.php" class="r-entry">RESULT_ENTRY</a>
+                <a href="admin_result_slip.php" class="r-slip">RESULT_SLIP</a>
+                <a href="admin_result_slip_pro.php" class="r-slip-pro">RESULT_SLIP_PRO</a>
+                <a href="admin_transcript.php" class="r-transcript">TRANSCRIPT</a>
+                <a href="admin_final_result.php" class="r-final">FINAL_RESULT</a>
+                <a href="admin_settings.php" class="r-settings">SETTINGS</a>
+                <a href="admin_result_database.php" class="r-database">RESULT_DATABASE</a>
+                <a href="admin_statement_of_result.php" class="r-statement">STATEMENT_OF_RESULT</a>
+            <?php elseif ($is_provost): ?>
+                <a href="admin_course_structure.php" class="r-course">COURSE_STRUCTURE</a>
+                <a href="admin_grade_setup.php" class="r-grade">GRADE_SETUP</a>
+                <a href="admin_result_entry.php" class="r-entry">RESULT_ENTRY</a>
+                <a href="admin_result_slip.php" class="r-slip">RESULT_SLIP</a>
+                <a href="admin_result_slip_pro.php" class="r-slip-pro">RESULT_SLIP_PRO</a>
+                <a href="admin_transcript.php" class="r-transcript">TRANSCRIPT</a>
+                <a href="admin_final_result.php" class="r-final">FINAL_RESULT</a>
+                <a href="admin_result_database.php" class="r-database">RESULT_DATABASE</a>
+                <a href="admin_statement_of_result.php" class="r-statement">STATEMENT_OF_RESULT</a>
+            <?php elseif ($is_exam_officer): ?>
+                <a href="admin_course_structure.php" class="r-course">COURSE_STRUCTURE</a>
+                <a href="admin_grade_setup.php" class="r-grade">GRADE_SETUP</a>
+                <a href="admin_result_entry.php" class="r-entry">RESULT_ENTRY</a>
+                <a href="admin_result_slip.php" class="r-slip">RESULT_SLIP</a>
+                <a href="admin_result_slip_pro.php" class="r-slip-pro">RESULT_SLIP_PRO</a>
+                <a href="admin_transcript.php" class="r-transcript">TRANSCRIPT</a>
+                <a href="admin_result_database.php" class="r-database">RESULT_DATABASE</a>
+            <?php endif; ?>
         </div>
 
         <div class="card no-print">
