@@ -567,10 +567,10 @@ if (!empty($student['photo'])) {
     <div class="letter-container" id="admissionLetter">
         
         <!-- ACTION BUTTONS -->
-        <div class="action-buttons no-print">
-            <button onclick="window.print()" class="btn-print">🖨️ Print / Download PDF</button>
-            <a href="student_dashboard.php" class="btn-back">← Back to Dashboard</a>
-        </div>
+       <div class="action-buttons no-print">
+    <button onclick="trackAndPrint()" class="btn-print">🖨️ Print / Download PDF</button>
+    <a href="student_dashboard.php" class="btn-back">← Back to Dashboard</a>
+</div>
         
         <!-- HEADER -->
         <div class="letter-header">
@@ -683,6 +683,17 @@ if (!empty($student['photo'])) {
             </div>
         </div>
     </div>
+    <script>
+function trackAndPrint() {
+    fetch('log_download.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'student_id=<?php echo $student_id; ?>&document_type=admission_letter&action_type=print'
+    }).finally(function() {
+        window.print();
+    });
+}
+</script>
 
 </body>
 </html>
