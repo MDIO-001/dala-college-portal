@@ -414,28 +414,69 @@ if (isset($_GET['export_students_with_password'])) {
 }
 
 // ============================================
-// DOWNLOAD T.P INTRODUCTORY LETTER LIST
+// DOWNLOAD T.P INTRODUCTORY LETTER LIST (GYARA)
+// Ɗaliban da suka riga sun download introductory letter
 // ============================================
 if (isset($_GET['download_intro_list'])) {
     $intro_level = mysqli_real_escape_string($conn, $_GET['intro_level'] ?? 'NCE III');
     
-    $intro_query = mysqli_query($conn, "SELECT * FROM students 
-                                        WHERE level = '$intro_level' 
-                                        AND status NOT IN ('rejected', 'inactive') 
-                                        ORDER BY fullname ASC");
+    // Nemo ɗaliban da suka riga sun download introductory letter
+    $intro_query = mysqli_query($conn, "
+        SELECT DISTINCT 
+            s.id, s.reg_no, s.student_id, s.fullname, s.programme, 
+            s.combination, s.course, s.level, s.branch_code,
+            s.email, s.phone,
+            dl.downloaded_at AS downloaded_date,
+            dl.action_type
+        FROM students s
+        INNER JOIN download_logs dl ON s.id = dl.student_id
+        WHERE s.level = '$intro_level' 
+        AND dl.document_type = 'introductory_letter'
+        AND s.status NOT IN ('rejected', 'inactive')
+        GROUP BY s.id
+        ORDER BY s.fullname ASC
+    ");
     
     header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="tp_introductory_list_' . date('Y-m-d') . '.csv"');
+    header('Content-Disposition: attachment; filename="tp_introductory_list_' . $intro_level . '_' . date('Y-m-d') . '.csv"');
     $output = fopen('php://output', 'w');
-    fputcsv($output, ['S/N', 'REG NO', 'FULL NAME', 'PROGRAMME', 'COMBINATION', 'LEVEL', 'STUDY CENTRE', 'EMAIL', 'PHONE']);
+    
+    // Header
+    fputcsv($output, ['DALA COLLEGE OF EDUCATION, KANO']);
+    fputcsv($output, ['T.P INTRODUCTORY LETTER LIST']);
+    fputcsv($output, ['Level:', $intro_level]);
+    fputcsv($output, ['Generated:', date('F j, Y g:i A')]);
+    fputcsv($output, []);
+    
+    fputcsv($output, [
+        'S/N', 
+        'REG NO', 
+        'FULL NAME', 
+        'PROGRAMME', 
+        'COMBINATION', 
+        'LEVEL', 
+        'STUDY CENTRE', 
+        'EMAIL', 
+        'PHONE',
+        'DOWNLOADED DATE',
+        'ACTION'
+    ]);
     
     $sn = 1;
     if ($intro_query && mysqli_num_rows($intro_query) > 0) {
         while ($row = mysqli_fetch_assoc($intro_query)) {
             fputcsv($output, [
-                $sn++, $row['reg_no'] ?? '', $row['fullname'] ?? '', $row['programme'] ?? '',
-                $row['combination'] ?? $row['course'] ?? '', $row['level'] ?? '',
-                $row['branch_code'] ?? '', $row['email'] ?? '', $row['phone'] ?? ''
+                $sn++,
+                $row['reg_no'] ?? $row['student_id'] ?? '—',
+                strtoupper($row['fullname'] ?? ''),
+                $row['programme'] ?? 'NCE',
+                $row['combination'] ?? $row['course'] ?? '—',
+                $row['level'] ?? '—',
+                $row['branch_code'] ?? '—',
+                $row['email'] ?? '—',
+                $row['phone'] ?? '—',
+                $row['downloaded_date'] ? date('d-M-Y g:i A', strtotime($row['downloaded_date'])) : '—',
+                ucfirst($row['action_type'] ?? '—')
             ]);
         }
     }
@@ -444,13 +485,22 @@ if (isset($_GET['download_intro_list'])) {
 }
 
 // ============================================
-// DOWNLOAD T.P POSTING LIST
+// DOWNLOAD T.P POSTING LIST (GYARA)
 // ============================================
 if (isset($_GET['download_posting_list'])) {
     $post_level = mysqli_real_escape_string($conn, $_GET['post_level'] ?? 'NCE III');
     $post_session = mysqli_real_escape_string($conn, $_GET['post_session'] ?? date('Y') . '/' . (date('Y') + 1));
     
-    $post_query = mysqli_query($conn, "SELECT s.*, t.school_name, t.supervisor_name, t.total_score, t.grade 
+    $post_query = mysqli_query($conn, "SELECT 
+                                        s.id, s.reg_no, s.student_id, s.fullname, s.programme, 
+                                        s.combination, s.course, s.level, s.branch_code,
+                                        s.phone, s.email,
+                                        t.school_name, t.supervisor_name, 
+                                        t.start_date, t.end_date,
+                                        t.teaching_score, t.lesson_note_score, 
+                                        t.punctuality_score, t.relationship_score,
+                                        t.total_score, t.grade, t.remark,
+                                        t.academic_year AS tp_session
                                         FROM students s 
                                         LEFT JOIN tp_results t ON s.id = t.student_id AND t.academic_year = '$post_session'
                                         WHERE s.level = '$post_level' 
@@ -458,18 +508,62 @@ if (isset($_GET['download_posting_list'])) {
                                         ORDER BY s.fullname ASC");
     
     header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="tp_posting_list_' . date('Y-m-d') . '.csv"');
+    header('Content-Disposition: attachment; filename="tp_posting_list_' . $post_level . '_' . date('Y-m-d') . '.csv"');
     $output = fopen('php://output', 'w');
-    fputcsv($output, ['S/N', 'REG NO', 'FULL NAME', 'PROGRAMME', 'COMBINATION', 'LEVEL', 'STUDY CENTRE', 'T.P SCHOOL', 'SUPERVISOR', 'SCORE', 'GRADE']);
+    
+    // Header
+    fputcsv($output, ['DALA COLLEGE OF EDUCATION, KANO']);
+    fputcsv($output, ['T.P POSTING LIST']);
+    fputcsv($output, ['Level:', $post_level]);
+    fputcsv($output, ['Session:', $post_session]);
+    fputcsv($output, ['Generated:', date('F j, Y g:i A')]);
+    fputcsv($output, []);
+    
+    fputcsv($output, [
+        'S/N', 
+        'REG NO', 
+        'FULL NAME', 
+        'PROGRAMME', 
+        'COMBINATION', 
+        'LEVEL', 
+        'STUDY CENTRE',
+        'PHONE',
+        'T.P SCHOOL', 
+        'SUPERVISOR', 
+        'START DATE', 
+        'END DATE',
+        'TEACHING (40)', 
+        'LESSON NOTE (20)', 
+        'PUNCTUALITY (20)', 
+        'RELATIONSHIP (20)', 
+        'TOTAL (100)', 
+        'GRADE', 
+        'REMARK'
+    ]);
     
     $sn = 1;
     if ($post_query && mysqli_num_rows($post_query) > 0) {
         while ($row = mysqli_fetch_assoc($post_query)) {
             fputcsv($output, [
-                $sn++, $row['reg_no'] ?? '', $row['fullname'] ?? '', $row['programme'] ?? '',
-                $row['combination'] ?? $row['course'] ?? '', $row['level'] ?? '',
-                $row['branch_code'] ?? '', $row['school_name'] ?? '—',
-                $row['supervisor_name'] ?? '—', $row['total_score'] ?? '—', $row['grade'] ?? '—'
+                $sn++,
+                $row['reg_no'] ?? $row['student_id'] ?? '—',
+                strtoupper($row['fullname'] ?? ''),
+                $row['programme'] ?? 'NCE',
+                $row['combination'] ?? $row['course'] ?? '—',
+                $row['level'] ?? '—',
+                $row['branch_code'] ?? '—',
+                $row['phone'] ?? '—',
+                $row['school_name'] ?? '—',
+                $row['supervisor_name'] ?? '—',
+                $row['start_date'] ? date('d-M-Y', strtotime($row['start_date'])) : '—',
+                $row['end_date'] ? date('d-M-Y', strtotime($row['end_date'])) : '—',
+                $row['teaching_score'] ?? '—',
+                $row['lesson_note_score'] ?? '—',
+                $row['punctuality_score'] ?? '—',
+                $row['relationship_score'] ?? '—',
+                $row['total_score'] ?? '—',
+                $row['grade'] ?? '—',
+                $row['remark'] ?? '—'
             ]);
         }
     }
@@ -1789,7 +1883,7 @@ function updateCourses() {
             { value: 'ARB/ISS', text: 'ARB/ISS - Arabic / Islamic Studies' },
             { value: 'ENG/ISS', text: 'ENG/ISS - English / Islamic Studies' },
             { value: 'PED', text: 'PED - Primary Education' },
-            { value: 'HAU/ENG', text: 'HAU/ENG - Hausa / English' },
+            { value: 'ENG/HAU', text: 'ENG/HAU - English / Hausa' },  // ✅ DAAIDAI
             { value: 'CSC/ISC', text: 'CSC/ISC - Computer Science / Islamic Studies' },
             { value: 'ENG/SOS', text: 'ENG/SOS - English / Social Studies' },
             { value: 'CSC/BIO', text: 'CSC/BIO - Computer Science / Biology' },
