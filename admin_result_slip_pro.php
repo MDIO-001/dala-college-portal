@@ -651,8 +651,11 @@ $total_carryover = count($carryovers);
             <?php if (count($results) > 0 || count($carryovers) > 0): ?>
             <div class="pro-bottom">
                 <div class="qr-box">
-                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=<?php echo urlencode('https://dala-portal.local/verify.php?reg_no=' . ($student['reg_no'] ?? $student['student_id'])); ?>" alt="QR">
-                    <p>Scan To Verify</p>
+                    <?php
+$qr_base_url = 'https://dalacoe.edu.ng/';
+$verify_url = $qr_base_url . 'verify.php?reg_no=' . urlencode($student['reg_no'] ?? $student['student_id']);
+?>
+<img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=<?php echo urlencode($verify_url); ?>" alt="QR">
                 </div>
                 <div class="sign-box">
                     <div class="sign-line"></div>

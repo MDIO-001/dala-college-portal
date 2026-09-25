@@ -2,36 +2,44 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 session_start();
-require_once 'connect.php'; // Yana haɗa da $pdo da $conn
+require_once 'connect.php';
 require_once 'result_functions.php';
+include 'check_role.php';
 
 // ============================================
-// TABBATAR DA SHIGA
+// ACCESS CONTROL - ADMIN, PROVOST, EXAM OFFICER
 // ============================================
 if (!isset($_SESSION['user_id'])) {
     header('Location: login.php');
     exit();
 }
 
-$user_role = $_SESSION['role'] ?? '';
-$allowed_roles = ['admin', 'Exam Officer', 'Provost'];
-
-if (!in_array($user_role, $allowed_roles)) {
-    header('Location: login.php');
+if (!canAccessResultEntry()) {
+    header('Location: staff_dashboard.php?error=access_denied');
     exit();
 }
+
+// ============================================
+// NEMO ROLE DIN MAI AMFANI
+// ============================================
+$user_role = $_SESSION['role'] ?? '';
+$position = strtolower(trim($_SESSION['position'] ?? ''));
+$is_admin = ($user_role == 'admin');
+$is_provost = ($user_role == 'Provost') || ($position == 'provost');
+$is_exam_officer = ($user_role == 'Exam Officer') || ($position == 'exam officer');
 
 $admin_name = $_SESSION['fullname'] ?? 'Admin';
 $message = '';
 $message_type = '';
 
 $session_options = getSessionOptions();
-$current_session = getSetting($pdo, 'current_session') ?? '2026/2027';
-$level_options = getLevelOptions(); // ['NCE I', 'NCE II', 'NCE III', '400 Level', '500 Level']
+// ⚠️ GYARA: Yi amfani da $conn maimakon $pdo
+$current_session = getSetting($conn, 'current_session') ?? '2026/2027';
+$level_options = getLevelOptions();
 $semester_options = ['First Semester', 'Second Semester'];
 
 // ============================================
-// LEVEL VARIANTS
+// FUNCTIONS
 // ============================================
 if (!function_exists('getLevelVariants')) {
     function getLevelVariants($level) {
@@ -55,7 +63,7 @@ if (!function_exists('buildLevelCondition')) {
 }
 
 // ============================================
-// SAMUN DALIBAI
+// SAMUN DALIBAI (PDO)
 // ============================================
 function getRegisteredStudents($pdo, $combination, $level, $semester, $session) {
     $level_sql = buildLevelCondition($level, 'cr.level');
@@ -78,12 +86,9 @@ function getRegisteredStudents($pdo, $combination, $level, $semester, $session) 
     $params = array_merge([$combination, $combination], $variants, [$semester, $session]);
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
-    return $stmt->fetchAll();
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-// ============================================
-// SAMUN COURSES NA DALIBI ƊAYA
-// ============================================
 function getRegisteredCourses($pdo, $student_id, $level, $semester, $session) {
     $level_sql = buildLevelCondition($level, 'cr.level');
     $variants = getLevelVariants($level);
@@ -107,12 +112,9 @@ function getRegisteredCourses($pdo, $student_id, $level, $semester, $session) {
     $params = array_merge([$level, $semester, $student_id], $variants, [$semester, $session]);
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
-    return $stmt->fetchAll();
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-// ============================================
-// SAMUN DUK COURSES NA COMBINATION
-// ============================================
 function getAllRegisteredCourses($pdo, $combination, $level, $semester, $session) {
     $level_sql = buildLevelCondition($level, 'cr.level');
     $variants = getLevelVariants($level);
@@ -134,7 +136,7 @@ function getAllRegisteredCourses($pdo, $combination, $level, $semester, $session
     $params = array_merge([$level, $semester, $combination, $combination], $variants, [$semester, $session]);
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
-    return $stmt->fetchAll();
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
 // ============================================
@@ -205,12 +207,12 @@ if (isset($_GET['download_single'])) {
     $params = array_merge([$course_code], $variants, [$semester]);
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
-    $course = $stmt->fetch();
+    $course = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$course) {
         $stmt = $pdo->prepare("SELECT * FROM courses WHERE course_code = ? AND level = ? AND semester = ? LIMIT 1");
         $stmt->execute([$course_code, $level, $semester]);
-        $course = $stmt->fetch();
+        $course = $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
     if (!$course) {
@@ -254,7 +256,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_single'])) {
 
     $stmt = $pdo->prepare("SELECT * FROM students WHERE id = ?");
     $stmt->execute([$student_id]);
-    $s = $stmt->fetch();
+    $s = $stmt->fetch(PDO::FETCH_ASSOC);
 
     $saved = 0;
 
@@ -277,19 +279,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_single'])) {
             $params = array_merge([$course_code, $student_id], $variants, [$semester, $session]);
             $stmt = $pdo->prepare($sql);
             $stmt->execute($params);
-            $course = $stmt->fetch();
+            $course = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$course) {
                 $stmt = $pdo->prepare("SELECT * FROM courses WHERE course_code = ? AND level = ? LIMIT 1");
                 $stmt->execute([$course_code, $level]);
-                $course = $stmt->fetch();
+                $course = $stmt->fetch(PDO::FETCH_ASSOC);
             }
 
             if (!$course) continue;
 
             $course_title = $course['course_title'];
             $credits = $course['credits'] ?? $course['credit_units'] ?? 0;
-            $g = getGrade($pdo, $score);
+            $g = getGrade($conn, $score);  // ⚠️ Yi amfani da $conn
 
             $check = $pdo->prepare("SELECT id FROM results 
                                     WHERE student_id = ? 
@@ -319,7 +321,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_single'])) {
         }
     }
 
-    $message = "✅ An adana <strong>$saved</strong> result(s) na <strong>$level — $semester — $session</strong>!";
+    $message = "✅ Saved <strong>$saved</strong> result(s) for <strong>$level — $semester — $session</strong>!";
     $message_type = 'success';
 }
 
@@ -339,7 +341,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_single_course']))
     if ($course_code && isset($_POST['student_scores']) && is_array($_POST['student_scores'])) {
         $stmt = $pdo->prepare("SELECT * FROM courses WHERE course_code = ? AND level = ? AND semester = ? LIMIT 1");
         $stmt->execute([$course_code, $level, $semester]);
-        $course = $stmt->fetch();
+        $course = $stmt->fetch(PDO::FETCH_ASSOC);
 
         $course_title = $course['course_title'] ?? $course_code;
         $credits = $course['credits'] ?? $course['credit_units'] ?? 0;
@@ -352,10 +354,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_single_course']))
 
             $stmt = $pdo->prepare("SELECT * FROM students WHERE id = ?");
             $stmt->execute([$student_id]);
-            $s = $stmt->fetch();
+            $s = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$s) continue;
 
-            $g = getGrade($pdo, $score);
+            $g = getGrade($conn, $score);  // ⚠️ Yi amfani da $conn
 
             $check = $pdo->prepare("SELECT id FROM results 
                                     WHERE student_id = ? 
@@ -385,7 +387,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_single_course']))
         }
     }
 
-    $message = "✅ An adana <strong>$saved</strong> sabbin, an sabunta <strong>$updated</strong> na <strong>$course_code</strong> ($level — $semester — $session)!";
+    $message = "✅ Saved <strong>$saved</strong> new, updated <strong>$updated</strong> for <strong>$course_code</strong> ($level — $semester — $session)!";
     $message_type = 'success';
 }
 
@@ -417,7 +419,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_complete'])) {
 
             $stmt = $pdo->prepare("SELECT * FROM students WHERE id = ?");
             $stmt->execute([$student_id]);
-            $s = $stmt->fetch();
+            $s = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$s) continue;
 
             foreach ($scores as $course_code => $score) {
@@ -429,7 +431,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_complete'])) {
                 $course_title = $course_map[$course_code]['title'] ?? $course_code;
                 $credits = $course_map[$course_code]['credits'] ?? 0;
 
-                $g = getGrade($pdo, $score);
+                $g = getGrade($conn, $score);  // ⚠️ Yi amfani da $conn
 
                 $check = $pdo->prepare("SELECT id FROM results 
                                         WHERE student_id = ? 
@@ -460,7 +462,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_complete'])) {
         }
     }
 
-    $message = "✅ Complete Combination: An adana <strong>$saved</strong> sabbin, an sabunta <strong>$updated</strong> ($level — $semester — $session)!";
+    $message = "✅ Complete Combination: Saved <strong>$saved</strong> new, updated <strong>$updated</strong> ($level — $semester — $session)!";
     $message_type = 'success';
 }
 
@@ -509,7 +511,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['upload_sheet'])) {
 
                 $stmt = $pdo->prepare("SELECT * FROM students WHERE reg_no = ? OR student_id = ? LIMIT 1");
                 $stmt->execute([$reg_no, $reg_no]);
-                $student = $stmt->fetch();
+                $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
                 if (!$student) {
                     $errors[] = "Row $row_num: Student $reg_no not found";
@@ -536,18 +538,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['upload_sheet'])) {
                     $params = array_merge([$course_code, $student['id']], $variants, [$semester, $session]);
                     $stmt = $pdo->prepare($sql);
                     $stmt->execute($params);
-                    $course = $stmt->fetch();
+                    $course = $stmt->fetch(PDO::FETCH_ASSOC);
 
                     if (!$course) {
                         $stmt = $pdo->prepare("SELECT * FROM courses WHERE course_code = ? AND level = ? LIMIT 1");
                         $stmt->execute([$course_code, $level]);
-                        $course = $stmt->fetch();
+                        $course = $stmt->fetch(PDO::FETCH_ASSOC);
                     }
 
                     if (!$course) continue;
 
                     $credits = $course['credits'] ?? $course['credit_units'] ?? 0;
-                    $g = getGrade($pdo, $score);
+                    $g = getGrade($conn, $score);  // ⚠️ Yi amfani da $conn
 
                     $check = $pdo->prepare("SELECT id FROM results 
                                             WHERE student_id = ? 
@@ -579,11 +581,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['upload_sheet'])) {
 
             $total = $saved + $updated;
             if ($total > 0) {
-                $message = "✅ An shigo da results na $level — $session!<br>📊 Sabbi: <strong>$saved</strong> | 🔄 Sabuntawa: <strong>$updated</strong>";
-                if (!empty($errors)) $message .= "<br>⚠️ Kuskure: " . count($errors);
+                $message = "✅ Imported $level — $session!<br>📊 New: <strong>$saved</strong> | 🔄 Updated: <strong>$updated</strong>";
+                if (!empty($errors)) $message .= "<br>⚠️ Errors: " . count($errors);
                 $message_type = 'success';
             } else {
-                $message = "❌ Babu result da aka shigo da shi.";
+                $message = "❌ No results imported.";
                 if (!empty($errors)) $message .= "<br>" . implode('<br>', array_slice($errors, 0, 5));
                 $message_type = 'error';
             }
@@ -596,12 +598,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['upload_sheet'])) {
 // ============================================
 $combinations_list = [];
 $stmt = $pdo->query("SELECT DISTINCT combination FROM students WHERE combination IS NOT NULL AND combination != '' ORDER BY combination");
-while ($c = $stmt->fetch()) $combinations_list[] = $c['combination'];
+while ($c = $stmt->fetch(PDO::FETCH_ASSOC)) $combinations_list[] = $c['combination'];
 
-// Idan babu a students, duba courses
 if (empty($combinations_list)) {
     $stmt = $pdo->query("SELECT DISTINCT combination FROM courses WHERE combination IS NOT NULL AND combination != '' ORDER BY combination");
-    while ($c = $stmt->fetch()) $combinations_list[] = $c['combination'];
+    while ($c = $stmt->fetch(PDO::FETCH_ASSOC)) $combinations_list[] = $c['combination'];
 }
 ?>
 <!DOCTYPE html>
@@ -609,7 +610,7 @@ if (empty($combinations_list)) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Result Entry - Admin</title>
+    <title>Result Entry</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
@@ -639,6 +640,8 @@ if (empty($combinations_list)) {
         .topbar nav a:hover { background:var(--secondary); }
         .topbar nav .logout { background:var(--danger); color:white !important; }
         .topbar .admin-badge { background:var(--danger); color:white; padding:6px 18px; border-radius:20px; font-size:0.8rem; font-weight:600; }
+        .topbar .provost-badge { background:var(--accent); color:var(--primary); padding:6px 18px; border-radius:20px; font-size:0.8rem; font-weight:800; }
+        .topbar .exam-badge { background:var(--secondary); color:white; padding:6px 18px; border-radius:20px; font-size:0.8rem; font-weight:600; }
 
         .result-nav {
             background:white; padding:15px; border-radius:12px; margin-bottom:20px;
@@ -727,13 +730,6 @@ if (empty($combinations_list)) {
         .student-info-box h3 { color:var(--primary); margin-bottom:10px; }
         .student-info-box p { color:var(--text); margin:5px 0; font-size:0.9rem; }
 
-        .total-summary { display:grid; grid-template-columns:repeat(3, 1fr); gap:15px; margin-top:20px; margin-bottom:15px; }
-        .total-summary .summary-box { border:2px solid var(--primary); padding:15px; text-align:center; border-radius:8px; background:#f8faf8; }
-        .total-summary .summary-box.gpa { border-color:var(--secondary); background:#e8f5e9; }
-        .total-summary .summary-box .label { font-size:0.7rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; }
-        .total-summary .summary-box .value { font-size:1.6rem; font-weight:900; color:var(--primary); line-height:1; margin-top:5px; }
-        .total-summary .summary-box.gpa .value { color:var(--secondary); }
-
         .import-area { background:#f8faf8; padding:30px; border-radius:12px; border:2px dashed var(--secondary); text-align:center; }
         .import-area input[type="file"] { padding:12px; border:2px solid var(--border); border-radius:8px; background:white; width:100%; max-width:400px; margin:15px auto; display:block; }
 
@@ -755,7 +751,6 @@ if (empty($combinations_list)) {
 
         @media (max-width:900px) {
             .form-row { grid-template-columns:1fr; }
-            .total-summary { grid-template-columns:1fr; }
             .topbar { flex-direction:column; gap:10px; }
         }
     </style>
@@ -765,27 +760,60 @@ if (empty($combinations_list)) {
         <div class="topbar">
             <div>
                 <span class="logo-title">DALA <span>COLLEGE</span></span>
-                <span class="logo-sub">Admin Panel</span>
+                <span class="logo-sub">Result System</span>
             </div>
             <nav>
-                <a href="admin_dashboard.php">Dashboard</a>
+                <?php if ($is_admin): ?>
+                    <a href="admin_dashboard.php">Dashboard</a>
+                <?php else: ?>
+                    <a href="staff_dashboard.php">Dashboard</a>
+                <?php endif; ?>
                 <a href="logout.php" class="logout">Logout</a>
             </nav>
-            <div><span class="admin-badge">👤 <?php echo htmlspecialchars($admin_name); ?></span></div>
+            <div>
+                <?php if ($is_admin): ?>
+                    <span class="admin-badge">👤 <?php echo htmlspecialchars($admin_name); ?> (ADMIN)</span>
+                <?php elseif ($is_provost): ?>
+                    <span class="provost-badge">👑 <?php echo htmlspecialchars($admin_name); ?> (PROVOST)</span>
+                <?php elseif ($is_exam_officer): ?>
+                    <span class="exam-badge">📚 <?php echo htmlspecialchars($admin_name); ?> (EXAM OFFICER)</span>
+                <?php endif; ?>
+            </div>
         </div>
 
         <div class="result-nav">
             <span class="label">📊 RESULT SYSTEM:</span>
-            <a href="admin_course_structure.php" class="r-course">COURSE_STRUCTURE</a>
-            <a href="admin_grade_setup.php" class="r-grade">GRADE_SETUP</a>
-            <a href="admin_result_entry.php" class="r-entry">RESULT_ENTRY</a>
-            <a href="admin_result_slip.php" class="r-slip">RESULT_SLIP</a>
-            <a href="admin_result_slip_pro.php" class="r-slip-pro">RESULT_SLIP_PRO</a>
-            <a href="admin_transcript.php" class="r-transcript">TRANSCRIPT</a>
-            <a href="admin_final_result.php" class="r-final">FINAL_RESULT</a>
-            <a href="admin_settings.php" class="r-settings">SETTINGS</a>
-            <a href="admin_result_database.php" class="r-database">RESULT_DATABASE</a>
-            <a href="admin_statement_of_result.php" class="r-statement">STATEMENT_OF_RESULT</a>
+            
+            <?php if ($is_admin): ?>
+                <a href="admin_course_structure.php" class="r-course">COURSE_STRUCTURE</a>
+                <a href="admin_grade_setup.php" class="r-grade">GRADE_SETUP</a>
+                <a href="admin_result_entry.php" class="r-entry">RESULT_ENTRY</a>
+                <a href="admin_result_slip.php" class="r-slip">RESULT_SLIP</a>
+                <a href="admin_result_slip_pro.php" class="r-slip-pro">RESULT_SLIP_PRO</a>
+                <a href="admin_transcript.php" class="r-transcript">TRANSCRIPT</a>
+                <a href="admin_final_result.php" class="r-final">FINAL_RESULT</a>
+                <a href="admin_settings.php" class="r-settings">SETTINGS</a>
+                <a href="admin_result_database.php" class="r-database">RESULT_DATABASE</a>
+                <a href="admin_statement_of_result.php" class="r-statement">STATEMENT_OF_RESULT</a>
+            <?php elseif ($is_provost): ?>
+                <a href="admin_course_structure.php" class="r-course">COURSE_STRUCTURE</a>
+                <a href="admin_grade_setup.php" class="r-grade">GRADE_SETUP</a>
+                <a href="admin_result_entry.php" class="r-entry">RESULT_ENTRY</a>
+                <a href="admin_result_slip.php" class="r-slip">RESULT_SLIP</a>
+                <a href="admin_result_slip_pro.php" class="r-slip-pro">RESULT_SLIP_PRO</a>
+                <a href="admin_transcript.php" class="r-transcript">TRANSCRIPT</a>
+                <a href="admin_final_result.php" class="r-final">FINAL_RESULT</a>
+                <a href="admin_result_database.php" class="r-database">RESULT_DATABASE</a>
+                <a href="admin_statement_of_result.php" class="r-statement">STATEMENT_OF_RESULT</a>
+            <?php elseif ($is_exam_officer): ?>
+                <a href="admin_course_structure.php" class="r-course">COURSE_STRUCTURE</a>
+                <a href="admin_grade_setup.php" class="r-grade">GRADE_SETUP</a>
+                <a href="admin_result_entry.php" class="r-entry">RESULT_ENTRY</a>
+                <a href="admin_result_slip.php" class="r-slip">RESULT_SLIP</a>
+                <a href="admin_result_slip_pro.php" class="r-slip-pro">RESULT_SLIP_PRO</a>
+                <a href="admin_transcript.php" class="r-transcript">TRANSCRIPT</a>
+                <a href="admin_result_database.php" class="r-database">RESULT_DATABASE</a>
+            <?php endif; ?>
         </div>
 
         <h2 style="color:var(--primary); margin-bottom:15px;">📝 Result Entry</h2>
@@ -804,7 +832,7 @@ if (empty($combinations_list)) {
         <!-- TAB 1: SINGLE STUDENT -->
         <div class="tab-content active" id="tab-single">
             <div class="card">
-                <h2>📝 Single Student — Shigar da Maki ga Dalibi Ɗaya</h2>
+                <h2>📝 Single Student — Enter Scores for One Student</h2>
 
                 <form method="GET" id="filterForm">
                     <div class="form-row">
@@ -821,7 +849,7 @@ if (empty($combinations_list)) {
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>Level (Result ɗin da ake so)</label>
+                            <label>Level</label>
                             <select name="level" required>
                                 <option value="">-- Select --</option>
                                 <?php foreach ($level_options as $lvl): ?>
@@ -869,12 +897,12 @@ if (empty($combinations_list)) {
                 ?>
                 <hr style="margin:20px 0; border:1px solid var(--border);">
 
-                <h3 style="margin-bottom:15px;">Zaɓi Dalibi:</h3>
+                <h3 style="margin-bottom:15px;">Select Student:</h3>
                 <div class="form-row col1">
                     <div class="form-group">
-                        <label>Dalibi (<?php echo count($students); ?> suka cancanta)</label>
+                        <label>Student (<?php echo count($students); ?> eligible)</label>
                         <select id="studentSelect" onchange="loadStudentCourses()">
-                            <option value="">-- Zaɓi Dalibi --</option>
+                            <option value="">-- Select Student --</option>
                             <?php foreach ($students as $s): ?>
                                 <option value="<?php echo $s['id']; ?>" 
                                         data-reg="<?php echo htmlspecialchars($s['reg_no'] ?? $s['student_id']); ?>"
@@ -888,7 +916,7 @@ if (empty($combinations_list)) {
                                 </option>
                             <?php endforeach; ?>
                             <?php if (count($students) == 0): ?>
-                                <option value="" disabled>⚠️ Babu dalibi da ya yi registration</option>
+                                <option value="" disabled>⚠️ No students registered</option>
                             <?php endif; ?>
                         </select>
                     </div>
@@ -902,7 +930,7 @@ if (empty($combinations_list)) {
         <!-- TAB 2: SINGLE COURSE -->
         <div class="tab-content" id="tab-single-course">
             <div class="card">
-                <h2>📚 Single Course — Shigar da Maki ga Duk Daliban</h2>
+                <h2>📚 Single Course — Enter Scores for All Students</h2>
 
                 <form method="GET" id="singleCourseForm">
                     <input type="hidden" name="sc_load" value="1">
@@ -977,7 +1005,7 @@ if (empty($combinations_list)) {
 
                     $stmt = $pdo->prepare("SELECT * FROM courses WHERE course_code = ? AND level = ? AND semester = ? LIMIT 1");
                     $stmt->execute([$sc_course, $sc_lvl, $sc_sem]);
-                    $sc_course_data = $stmt->fetch();
+                    $sc_course_data = $stmt->fetch(PDO::FETCH_ASSOC);
                     $sc_title = $sc_course_data['course_title'] ?? $sc_course;
                     $sc_credits = $sc_course_data['credits'] ?? $sc_course_data['credit_units'] ?? 0;
 
@@ -985,7 +1013,7 @@ if (empty($combinations_list)) {
                     $stmt = $pdo->prepare("SELECT student_id, score, grade FROM results 
                                            WHERE course_code = ? AND level = ? AND semester = ? AND session = ?");
                     $stmt->execute([$sc_course, $sc_lvl, $sc_sem, $sc_sess]);
-                    while ($r = $stmt->fetch()) {
+                    while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
                         $sc_existing[$r['student_id']] = $r;
                     }
                 ?>
@@ -993,7 +1021,7 @@ if (empty($combinations_list)) {
 
                 <?php if (count($sc_students) == 0): ?>
                     <div style="text-align:center; padding:30px; background:#fff3e0; border-radius:10px;">
-                        <p style="color:#e65100; font-weight:700;">⚠️ Babu dalibi da ya yi registration a wannan zaɓi.</p>
+                        <p style="color:#e65100; font-weight:700;">⚠️ No students registered for this selection.</p>
                     </div>
                 <?php else: ?>
                     <div class="student-info-box">
@@ -1002,7 +1030,7 @@ if (empty($combinations_list)) {
                            <strong>Level:</strong> <?php echo htmlspecialchars($sc_lvl); ?> | 
                            <strong>Semester:</strong> <?php echo htmlspecialchars($sc_sem); ?> | 
                            <strong>Session:</strong> <?php echo htmlspecialchars($sc_sess); ?></p>
-                        <p><strong>Dalibai:</strong> <?php echo count($sc_students); ?></p>
+                        <p><strong>Students:</strong> <?php echo count($sc_students); ?></p>
                     </div>
 
                     <form method="POST">
@@ -1063,16 +1091,16 @@ if (empty($combinations_list)) {
         <!-- TAB 3: COMPLETE COMBINATION -->
         <div class="tab-content" id="tab-complete">
             <div class="card">
-                <h2>🎯 Complete Combination — Duk Dalibai × Duk Courses</h2>
+                <h2>🎯 Complete Combination — All Students × All Courses</h2>
 
                 <div class="guide-box">
-                    <h4>📖 Yadda Ake Amfani:</h4>
+                    <h4>📖 How to Use:</h4>
                     <ol>
-                        <li>Zaɓi <strong>Combination, Level, Semester, da Session</strong></li>
-                        <li>Danna <strong>"Load Complete Grid"</strong></li>
-                        <li>Za a nuna <strong>tebur mai girma</strong> — dalibai a layi, courses a shafi</li>
-                        <li>Shigar da maki a kowane cell</li>
-                        <li>Danna <strong>"Save Complete Combination"</strong> — za a adana duk maki gaba ɗaya</li>
+                        <li>Select <strong>Combination, Level, Semester, and Session</strong></li>
+                        <li>Click <strong>"Load Complete Grid"</strong></li>
+                        <li>A <strong>large grid</strong> will appear — students in rows, courses in columns</li>
+                        <li>Enter scores in each cell</li>
+                        <li>Click <strong>"Save Complete Combination"</strong> — all scores will be saved at once</li>
                     </ol>
                 </div>
 
@@ -1153,7 +1181,7 @@ if (empty($combinations_list)) {
                         $params = array_merge($student_ids, [$cc_lvl, $cc_sem, $cc_sess]);
                         $stmt = $pdo->prepare($sql);
                         $stmt->execute($params);
-                        while ($r = $stmt->fetch()) {
+                        while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
                             $cc_existing[$r['student_id']][$r['course_code']] = $r;
                         }
                     }
@@ -1162,11 +1190,11 @@ if (empty($combinations_list)) {
 
                 <?php if (count($cc_students) == 0): ?>
                     <div style="text-align:center; padding:30px; background:#fff3e0; border-radius:10px;">
-                        <p style="color:#e65100; font-weight:700;">⚠️ Babu dalibi da ya yi registration a wannan zaɓi.</p>
+                        <p style="color:#e65100; font-weight:700;">⚠️ No students registered for this selection.</p>
                     </div>
                 <?php elseif (count($cc_courses) == 0): ?>
                     <div style="text-align:center; padding:30px; background:#fff3e0; border-radius:10px;">
-                        <p style="color:#e65100; font-weight:700;">⚠️ Babu courses ɗin da aka yi registration.</p>
+                        <p style="color:#e65100; font-weight:700;">⚠️ No courses registered.</p>
                     </div>
                 <?php else: ?>
                     <div class="student-info-box">
@@ -1175,7 +1203,7 @@ if (empty($combinations_list)) {
                            <strong>Level:</strong> <?php echo htmlspecialchars($cc_lvl); ?> | 
                            <strong>Semester:</strong> <?php echo htmlspecialchars($cc_sem); ?> | 
                            <strong>Session:</strong> <?php echo htmlspecialchars($cc_sess); ?></p>
-                        <p><strong>Dalibai:</strong> <?php echo count($cc_students); ?> | 
+                        <p><strong>Students:</strong> <?php echo count($cc_students); ?> | 
                            <strong>Courses:</strong> <?php echo count($cc_courses); ?></p>
                     </div>
 
@@ -1229,23 +1257,23 @@ if (empty($combinations_list)) {
                                 <i class="fas fa-save"></i> Save Complete Combination
                             </button>
                             <button type="button" class="btn btn-orange" onclick="fillEmptyWithZero()">
-                                <i class="fas fa-fill"></i> Cika komai da 0
+                                <i class="fas fa-fill"></i> Fill Empty with 0
                             </button>
                             <button type="button" class="btn btn-red" onclick="clearAllScores()">
-                                <i class="fas fa-eraser"></i> Share Duk Maki
+                                <i class="fas fa-eraser"></i> Clear All Scores
                             </button>
                         </div>
                     </form>
 
                     <script>
                     function fillEmptyWithZero() {
-                        if (!confirm('Ka tabbata? Za a cika duk cells da 0.')) return;
+                        if (!confirm('Are you sure? All empty cells will be filled with 0.')) return;
                         document.querySelectorAll('#completeSaveForm .score-input').forEach(function(input) {
                             if (input.value === '') input.value = 0;
                         });
                     }
                     function clearAllScores() {
-                        if (!confirm('Ka tabbata? Za a share duk maki.')) return;
+                        if (!confirm('Are you sure? All scores will be cleared.')) return;
                         document.querySelectorAll('#completeSaveForm .score-input').forEach(function(input) {
                             input.value = '';
                         });
@@ -1260,14 +1288,14 @@ if (empty($combinations_list)) {
         <div class="tab-content" id="tab-bulk">
             <div class="card">
                 <div class="guide-box">
-                    <h4>📖 Yadda Ake Amfani da CSV:</h4>
+                    <h4>📖 How to Use CSV:</h4>
                     <ol>
-                        <li><strong>Step 1:</strong> Download Sheet (All Courses ko Single Course)</li>
-                        <li><strong>Step 2:</strong> Buɗe CSV a Excel/Google Sheets</li>
-                        <li><strong>Step 3:</strong> Shigar da maki (0-100)</li>
-                        <li><strong>Step 4:</strong> Ajiye a matsayin CSV</li>
+                        <li><strong>Step 1:</strong> Download Sheet (All Courses or Single Course)</li>
+                        <li><strong>Step 2:</strong> Open CSV in Excel/Google Sheets</li>
+                        <li><strong>Step 3:</strong> Enter scores (0-100)</li>
+                        <li><strong>Step 4:</strong> Save as CSV</li>
                         <li><strong>Step 5:</strong> Upload Sheet</li>
-                        <li><strong>Step 6:</strong> System ɗin zai lissafta Grade, Point, GPA kai tsaye ✅</li>
+                        <li><strong>Step 6:</strong> System will calculate Grade, Point, GPA automatically ✅</li>
                     </ol>
                 </div>
             </div>

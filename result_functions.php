@@ -5,6 +5,84 @@
 // ============================================
 
 // ============================================
+// HELPER: ESCAPE STRING
+// ============================================
+if (!function_exists('escapeString')) {
+    function escapeString($conn, $value) {
+        if ($conn instanceof PDO) {
+            return substr($conn->quote($value), 1, -1);
+        }
+        if ($conn instanceof mysqli) {
+            return mysqli_real_escape_string($conn, $value);
+        }
+        return addslashes($value);
+    }
+}
+
+// ============================================
+// HELPER: RUN QUERY
+// ============================================
+if (!function_exists('runQuery')) {
+    function runQuery($conn, $sql) {
+        if ($conn instanceof PDO) {
+            return $conn->query($sql);
+        }
+        if ($conn instanceof mysqli) {
+            return mysqli_query($conn, $sql);
+        }
+        return false;
+    }
+}
+
+// ============================================
+// HELPER: FETCH ASSOC
+// ============================================
+if (!function_exists('fetchAssoc')) {
+    function fetchAssoc($result) {
+        if ($result instanceof PDOStatement) {
+            return $result->fetch(PDO::FETCH_ASSOC);
+        }
+        if ($result instanceof mysqli_result) {
+            return mysqli_fetch_assoc($result);
+        }
+        return null;
+    }
+}
+
+// ============================================
+// HELPER: FETCH ALL
+// ============================================
+if (!function_exists('fetchAllRows')) {
+    function fetchAllRows($result) {
+        $rows = [];
+        if ($result instanceof PDOStatement) {
+            return $result->fetchAll(PDO::FETCH_ASSOC);
+        }
+        if ($result instanceof mysqli_result) {
+            while ($r = mysqli_fetch_assoc($result)) {
+                $rows[] = $r;
+            }
+        }
+        return $rows;
+    }
+}
+
+// ============================================
+// HELPER: NUM ROWS
+// ============================================
+if (!function_exists('numRows')) {
+    function numRows($result) {
+        if ($result instanceof PDOStatement) {
+            return $result->rowCount();
+        }
+        if ($result instanceof mysqli_result) {
+            return mysqli_num_rows($result);
+        }
+        return 0;
+    }
+}
+
+// ============================================
 // LEVEL OPTIONS
 // ============================================
 if (!function_exists('getLevelOptions')) {
@@ -13,6 +91,9 @@ if (!function_exists('getLevelOptions')) {
     }
 }
 
+// ============================================
+// GET LEVEL BY PROGRAMME
+// ============================================
 if (!function_exists('getLevelByProgramme')) {
     function getLevelByProgramme($programme, $explicit_level = null) {
         if ($explicit_level && !empty($explicit_level)) return trim($explicit_level);
@@ -24,48 +105,83 @@ if (!function_exists('getLevelByProgramme')) {
 }
 
 // ============================================
-// GET SETTING (mysqli)
+// GET SETTING (Yana aiki da PDO DA mysqli)
 // ============================================
 if (!function_exists('getSetting')) {
     function getSetting($conn, $key) {
-        $key = mysqli_real_escape_string($conn, $key);
-        $result = mysqli_query($conn, "SELECT setting_value FROM settings WHERE setting_key = '$key'");
-        
-        if ($result && mysqli_num_rows($result) > 0) {
-            $row = mysqli_fetch_assoc($result);
-            return $row['setting_value'];
+        // PDO
+        if ($conn instanceof PDO) {
+            try {
+                $stmt = $conn->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+                $stmt->execute([$key]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                return $row['setting_value'] ?? '';
+            } catch (PDOException $e) {
+                return '';
+            }
         }
         
-        return null;
+        // MySQLi
+        if ($conn instanceof mysqli) {
+            $key = mysqli_real_escape_string($conn, $key);
+            $query = mysqli_query($conn, "SELECT setting_value FROM settings WHERE setting_key = '$key'");
+            if ($query && $row = mysqli_fetch_assoc($query)) {
+                return $row['setting_value'];
+            }
+            return '';
+        }
+        
+        return '';
     }
 }
 
 // ============================================
-// GET GRADE
+// GET GRADE (Yana aiki da PDO DA mysqli)
 // ============================================
 if (!function_exists('getGrade')) {
-    function getGrade($pdo, $score) {
+    function getGrade($conn, $score) {
         $score = intval($score);
 
-        try {
-            $stmt = $pdo->prepare("SELECT * FROM grade_setup 
-                                   WHERE ? >= min_score 
-                                   AND ? <= max_score 
-                                   AND status = 'Active' 
-                                   ORDER BY min_score DESC
-                                   LIMIT 1");
-            $stmt->execute([$score, $score]);
-            $row = $stmt->fetch();
+        // PDO
+        if ($conn instanceof PDO) {
+            try {
+                $stmt = $conn->prepare("SELECT * FROM grade_setup 
+                                       WHERE ? >= min_score 
+                                       AND ? <= max_score 
+                                       AND status = 'Active' 
+                                       ORDER BY min_score DESC
+                                       LIMIT 1");
+                $stmt->execute([$score, $score]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if ($row && is_array($row)) {
+                if ($row && is_array($row)) {
+                    return [
+                        'grade' => $row['grade'] ?? 'F',
+                        'grade_point' => $row['grade_point'] ?? 0,
+                        'remark' => $row['remark'] ?? 'Fail'
+                    ];
+                }
+            } catch (PDOException $e) {
+                // Ci gaba da fallback
+            }
+        }
+        
+        // MySQLi
+        if ($conn instanceof mysqli) {
+            $query = "SELECT * FROM grade_setup 
+                      WHERE $score >= min_score 
+                      AND $score <= max_score 
+                      AND status = 'Active' 
+                      ORDER BY min_score DESC
+                      LIMIT 1";
+            $result = mysqli_query($conn, $query);
+            if ($result && $row = mysqli_fetch_assoc($result)) {
                 return [
                     'grade' => $row['grade'] ?? 'F',
                     'grade_point' => $row['grade_point'] ?? 0,
                     'remark' => $row['remark'] ?? 'Fail'
                 ];
             }
-        } catch (PDOException $e) {
-            // Ci gaba da fallback
         }
 
         // Fallback
@@ -87,18 +203,16 @@ if (!function_exists('getStudentCGPA')) {
         $total_points = 0; 
         $total_units = 0;
         
-        // Duba ko PDO ne ko mysqli
         if ($conn instanceof PDO) {
             $stmt = $conn->prepare("SELECT * FROM results 
                                     WHERE student_id = ? 
                                     AND grade != 'F'");
             $stmt->execute([$student_id]);
-            while ($r = $stmt->fetch()) {
+            while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
                 $total_points += $r['grade_point'] * $r['credit_units'];
                 $total_units += $r['credit_units'];
             }
         } else {
-            // mysqli
             $result = mysqli_query($conn, "SELECT * FROM results 
                                            WHERE student_id = $student_id 
                                            AND grade != 'F'");
@@ -156,27 +270,43 @@ if (!function_exists('getGradeClassification')) {
 // ============================================
 if (!function_exists('getGraduationYear')) {
     function getGraduationYear($conn, $student_id = null) {
+        // Idan $conn NULL ne, to ba za mu iya bincika database ba
+        if ($conn === null) {
+            // Yi amfani da shekarar yanzu kawai
+            if ($student_id === null || $student_id === 0) {
+                return date('Y');
+            }
+            return date('Y');
+        }
+        
         // Idan an ba da $student_id, nemo daga database
-        if ($student_id !== null) {
+        if ($student_id !== null && $student_id > 0) {
             $student_id = intval($student_id);
             $admission_year = null;
             $programme = 'NCE';
             
             if ($conn instanceof PDO) {
-                $stmt = $conn->prepare("SELECT admission_year, entry_year, programme, programme_type FROM students WHERE id = ? LIMIT 1");
-                $stmt->execute([$student_id]);
-                $student = $stmt->fetch();
-                if ($student) {
-                    $admission_year = $student['entry_year'] ?? $student['admission_year'] ?? null;
-                    $programme = $student['programme'] ?? $student['programme_type'] ?? 'NCE';
+                try {
+                    $stmt = $conn->prepare("SELECT admission_year, entry_year, programme, programme_type FROM students WHERE id = ? LIMIT 1");
+                    $stmt->execute([$student_id]);
+                    $student = $stmt->fetch(PDO::FETCH_ASSOC);
+                    if ($student) {
+                        $admission_year = $student['entry_year'] ?? $student['admission_year'] ?? null;
+                        $programme = $student['programme'] ?? $student['programme_type'] ?? 'NCE';
+                    }
+                } catch (PDOException $e) {
+                    return date('Y');
                 }
-            } else {
+            } elseif ($conn instanceof mysqli) {
                 $result = mysqli_query($conn, "SELECT admission_year, entry_year, programme, programme_type FROM students WHERE id = $student_id LIMIT 1");
                 if ($result && mysqli_num_rows($result) > 0) {
                     $student = mysqli_fetch_assoc($result);
                     $admission_year = $student['entry_year'] ?? $student['admission_year'] ?? null;
                     $programme = $student['programme'] ?? $student['programme_type'] ?? 'NCE';
                 }
+            } else {
+                // $conn ba PDO ba ne, ba mysqli ba ne
+                return date('Y');
             }
             
             if (!$admission_year) return date('Y');
@@ -187,11 +317,16 @@ if (!function_exists('getGraduationYear')) {
             return $grad_start . '/' . ($grad_start + 1);
         }
         
-        // Idan an ba da admission_year kai tsaye
-        if (empty($conn)) return date('Y');
-        $start = (int) explode('/', $conn)[0];
-        $grad_start = $start + 3;
-        return $grad_start . '/' . ($grad_start + 1);
+        // Idan an ba da admission_year kai tsaye (kamar "2024/2025")
+        if (is_string($conn) && !empty($conn)) {
+            $start = (int) explode('/', $conn)[0];
+            if ($start > 0) {
+                $grad_start = $start + 3;
+                return $grad_start . '/' . ($grad_start + 1);
+            }
+        }
+        
+        return date('Y');
     }
 }
 
@@ -239,7 +374,7 @@ if (!function_exists('getCategoryGPAs')) {
         if ($conn instanceof PDO) {
             $stmt = $conn->prepare("SELECT * FROM results WHERE student_id = ? AND grade != 'F'");
             $stmt->execute([$student_id]);
-            $all_results = $stmt->fetchAll();
+            $all_results = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } else {
             $result = mysqli_query($conn, "SELECT * FROM results WHERE student_id = $student_id AND grade != 'F'");
             if ($result) {
@@ -279,7 +414,7 @@ if (!function_exists('getCategoryGPAs')) {
 }
 
 // ============================================
-// CARRY OVER COURSES
+// CARRY OVER COURSES (Yana aiki da PDO DA mysqli)
 // ============================================
 if (!function_exists('getCarryOverCourses')) {
     function getCarryOverCourses($conn, $student_id, $combination = null) {
@@ -306,9 +441,9 @@ if (!function_exists('getCarryOverCourses')) {
                       ORDER BY r.session, r.course_code";
             $stmt = $conn->prepare($query);
             $stmt->execute($params);
-            return $stmt->fetchAll();
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } else {
-            $where_comb = $combination ? " AND r.combination = '$combination'" : "";
+            $where_comb = $combination ? " AND r.combination = '" . mysqli_real_escape_string($conn, $combination) . "'" : "";
             $query = "SELECT r.* FROM results r
                       WHERE r.student_id = $student_id 
                       AND r.grade = 'F'
@@ -341,7 +476,7 @@ if (!function_exists('hasCarryOver')) {
 }
 
 // ============================================
-// GET CARRY OVER FOR LEVEL
+// GET CARRY OVER FOR LEVEL (Yana aiki da PDO DA mysqli)
 // ============================================
 if (!function_exists('getCarryOverForLevel')) {
     function getCarryOverForLevel($conn, $student_id, $level = null, $semester = null, $session = null) {
@@ -364,7 +499,7 @@ if (!function_exists('getCarryOverForLevel')) {
                       ORDER BY r.session ASC, r.course_code ASC";
             $stmt = $conn->prepare($query);
             $stmt->execute([$student_id]);
-            return $stmt->fetchAll();
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } else {
             $query = "SELECT r.*, 'carryover' AS type,
                              r.session AS original_session,
