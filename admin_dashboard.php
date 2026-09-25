@@ -15,21 +15,43 @@ $error = '';
 
 // ============================================
 // COURSE CODES
+// NCCE Standard: ENG/HAU (English / Hausa)
 // ============================================
 function getDepartmentCode($course) {
     $dept_codes = [
-        'ARB/ISS' => 'ARI', 'ENG/ISS' => 'ENI', 'PED' => 'PED',
-        'ENG/HAU' => 'ENH', 'CSC/ISC' => 'CSI', 'ENG/SOS' => 'ENS',
-        'CSC/BIO' => 'CSB', 'CSC/PHY' => 'CSP', 'ENG/ECO' => 'ENE',
-        'HAU/ENG' => 'HAE',
-        'BA_ARABIC' => 'ARI', 'BA_ISLAMIC' => 'ISC',
-        'BED_ENGLISH' => 'ENG', 'BED_HAUSA' => 'HAU',
-        'BED_SOCIAL' => 'SOC', 'BSC_ECONOMICS' => 'ECO',
-        'BSC_CSC' => 'CSC', 'BSC_BIOLOGY' => 'BIO',
-        'BSC_PHYSICS' => 'PHY', 'BSC_ISC' => 'ISC',
-        'TAILORING' => 'TAI', 'AI_TECH' => 'AIT', 'SALOON' => 'SAL',
-        'HENNA' => 'HEN', 'FISH_FARMING' => 'FIS', 'POULTRY' => 'POU',
-        'SOAP_MAKING' => 'SOA', 'CATERING' => 'CAT', 'BEAD_MAKING' => 'BEA',
+        // NCE Courses
+        'ARB/ISS' => 'ARI',   // Arabic / Islamic Studies
+        'ENG/ISS' => 'ENI',   // English / Islamic Studies
+        'PED'     => 'PED',   // Primary Education
+        'ENG/HAU' => 'ENH',   // English / Hausa (NCCE Standard)
+        'CSC/ISC' => 'CSI',   // Computer Science / Islamic Studies
+        'ENG/SOS' => 'ENS',   // English / Social Studies
+        'CSC/BIO' => 'CSB',   // Computer Science / Biology
+        'CSC/PHY' => 'CSP',   // Computer Science / Physics
+        'ENG/ECO' => 'ENE',   // English / Economics
+        
+        // Degree Courses
+        'BA_ARABIC'     => 'ARI',
+        'BA_ISLAMIC'    => 'ISC',
+        'BED_ENGLISH'   => 'ENG',
+        'BED_HAUSA'     => 'HAU',
+        'BED_SOCIAL'    => 'SOC',
+        'BSC_ECONOMICS' => 'ECO',
+        'BSC_CSC'       => 'CSC',
+        'BSC_BIOLOGY'   => 'BIO',
+        'BSC_PHYSICS'   => 'PHY',
+        'BSC_ISC'       => 'ISC',
+        
+        // Entrepreneurship
+        'TAILORING'      => 'TAI',
+        'AI_TECH'        => 'AIT',
+        'SALOON'         => 'SAL',
+        'HENNA'          => 'HEN',
+        'FISH_FARMING'   => 'FIS',
+        'POULTRY'        => 'POU',
+        'SOAP_MAKING'    => 'SOA',
+        'CATERING'       => 'CAT',
+        'BEAD_MAKING'    => 'BEA',
         'GRAPHIC_DESIGN' => 'GRA'
     ];
     return $dept_codes[strtoupper(trim($course))] ?? 'GEN';
@@ -501,6 +523,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_student'])) {
         $password = password_hash('student123', PASSWORD_DEFAULT);
         $year_info = getYearInfo($level);
         
+        // ============================================
+        // ⚠️ MUHIMMANCI: student_id = reg_no (ba a ƙirƙira daban ba)
+        // ============================================
         $insert = "INSERT INTO students (reg_no, student_id, username, password, fullname, email, phone, gender, programme, course, combination, level, entry_year, graduation_year, status, branch_code, created_at) 
                    VALUES ('$reg_no', '$reg_no', '$username', '$password', '$fullname', '$email', '$phone', '$gender', '$programme', '$course', '$course', '$level', '{$year_info['entry']}', '{$year_info['grad']}', '$status', '$branch_code', NOW())";
         
@@ -534,7 +559,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['change_student_passwor
 }
 
 // ============================================
-// ADD STAFF (SABO)
+// ADD STAFF
 // ============================================
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_staff'])) {
     $fullname = mysqli_real_escape_string($conn, trim($_POST['staff_fullname']));
@@ -633,17 +658,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['change_staff_password'
             $staff_pass_error = "❌ Error: " . mysqli_error($conn);
         }
     }
-}
-
-// ============================================
-// DELETE STAFF
-// ============================================
-if (isset($_GET['delete_staff']) && is_numeric($_GET['delete_staff'])) {
-    $sid = intval($_GET['delete_staff']);
-    if ($sid != $_SESSION['user_id']) {
-        mysqli_query($conn, "DELETE FROM staff WHERE id = $sid");
-    }
-    header('Location: admin_dashboard.php'); exit();
 }
 
 // ============================================
@@ -810,6 +824,59 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
     mysqli_query($conn, "UPDATE students SET status='$status' WHERE id='$id'");
     header('Location: admin_dashboard.php'); exit();
 }
+
+// ============================================
+// SEARCH STUDENT (KYAUTA)
+// ============================================
+$search_results = null;
+$search_count = 0;
+if (isset($_GET['search']) || isset($_GET['search_level']) || isset($_GET['search_status'])) {
+    $search = mysqli_real_escape_string($conn, trim($_GET['search'] ?? ''));
+    $s_level = mysqli_real_escape_string($conn, $_GET['search_level'] ?? '');
+    $s_status = mysqli_real_escape_string($conn, $_GET['search_status'] ?? '');
+    
+    $where = [];
+    
+    if (!empty($search)) {
+        $where[] = "(fullname LIKE '%$search%' 
+                     OR reg_no LIKE '%$search%' 
+                     OR student_id LIKE '%$search%' 
+                     OR email LIKE '%$search%' 
+                     OR phone LIKE '%$search%' 
+                     OR username LIKE '%$search%')";
+    }
+    
+    if (!empty($s_level)) {
+        $level_variants = [
+            'NCE I' => ['NCE I', 'NCEI', 'NCE 1'],
+            'NCE II' => ['NCE II', 'NCEII', 'NCE 2'],
+            'NCE III' => ['NCE III', 'NCEIII', 'NCE 3'],
+            '400 Level' => ['400 Level', '400L', '400'],
+            '500 Level' => ['500 Level', '500L', '500']
+        ];
+        $variants = $level_variants[$s_level] ?? [$s_level];
+        $level_conditions = [];
+        foreach ($variants as $v) {
+            $v_esc = mysqli_real_escape_string($conn, $v);
+            $level_conditions[] = "level = '$v_esc'";
+        }
+        $where[] = "(" . implode(' OR ', $level_conditions) . ")";
+    }
+    
+    if (!empty($s_status)) {
+        $where[] = "status = '$s_status'";
+    }
+    
+    $where_sql = !empty($where) ? "WHERE " . implode(' AND ', $where) : "";
+    $search_results = mysqli_query($conn, "SELECT * FROM students $where_sql ORDER BY id DESC LIMIT 50");
+    
+    if (!$search_results) {
+        $search_error = "❌ SQL Error: " . mysqli_error($conn);
+        $search_count = 0;
+    } else {
+        $search_count = mysqli_num_rows($search_results);
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -925,6 +992,7 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
         .status-badge.rejected { background:#ffebee; color:#c62828; }
         
         .admission-no { font-weight:700; color:#0d2818; font-size:0.75rem; background:#e8f5e9; padding:2px 10px; border-radius:12px; }
+        .username-badge { font-weight:600; color:#7b1fa2; font-size:0.75rem; background:#f3e5f5; padding:2px 8px; border-radius:8px; font-family:monospace; }
         
         .action-btns { display: flex; gap: 4px; flex-wrap: wrap; }
         .action-btns a { padding: 5px 9px; border-radius: 4px; text-decoration: none; color: white; font-size: 0.75rem; transition: all 0.3s ease; }
@@ -937,6 +1005,7 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
         .view-btn { background: #7b1fa2; }
         .idcard-btn { background: #1976d2; }
         .tp-btn { background: #e65100; }
+        .stats-btn { background: #e65100; }
         
         .action-form { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
         .action-form input[type="text"] { padding:6px 10px; border:1px solid #dce8dc; border-radius:6px; font-size:0.78rem; min-width:100px; }
@@ -1002,9 +1071,7 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
         </div>
     </div>
 
-    <!-- ============================================ -->
-    <!-- STATS CARDS (ROW 1) -->
-    <!-- ============================================ -->
+    <!-- STATS CARDS -->
     <div class="stats">
         <a href="view_applications.php?status=pending" class="stat-card pending">
             <div class="number"><?php echo $total_pending; ?></div>
@@ -1060,9 +1127,7 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
         </a>
     </div>
 
-    <!-- ============================================ -->
-    <!-- GENDER + STAFF STATS CARDS (SABO) -->
-    <!-- ============================================ -->
+    <!-- GENDER + STAFF STATS CARDS -->
     <h3 style="color:#0d2818; margin-bottom:15px; font-size:1.1rem;">
         <i class="fas fa-venus-mars" style="color:#1976d2;"></i> Gender & Staff Statistics
     </h3>
@@ -1174,114 +1239,7 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
         </div>
     </div>
 
-    <!-- ============================================ -->
-    <!-- ADD STAFF (SABO) -->
-    <!-- ============================================ -->
-    <div class="card">
-        <div class="card-header">
-            <h2>➕ Add New Staff</h2>
-            <span style="color:#6a8f6a; font-size:0.9rem;">Ƙara sabon ma'aikaci</span>
-        </div>
-        
-        <?php if (isset($staff_success)): ?><div class="alert alert-success"><?php echo $staff_success; ?></div><?php endif; ?>
-        <?php if (isset($staff_error)): ?><div class="alert alert-error"><?php echo $staff_error; ?></div><?php endif; ?>
-        
-        <form method="POST">
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Full Name *</label>
-                    <input type="text" name="staff_fullname" required>
-                </div>
-                <div class="form-group">
-                    <label>Email *</label>
-                    <input type="email" name="staff_email" required>
-                </div>
-            </div>
-            
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Phone *</label>
-                    <input type="tel" name="staff_phone" required>
-                </div>
-                <div class="form-group">
-                    <label>Username *</label>
-                    <input type="text" name="staff_username" required placeholder="Don login">
-                </div>
-            </div>
-            
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Password *</label>
-                    <input type="text" name="staff_password" value="staff123" required>
-                    <div class="hint">Default: staff123</div>
-                </div>
-                <div class="form-group">
-                    <label>Gender</label>
-                    <select name="staff_gender">
-                        <option value="">-- Select --</option>
-                        <option value="Male">Male</option>
-                        <option value="Female">Female</option>
-                    </select>
-                </div>
-            </div>
-            
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Role *</label>
-                   <select name="staff_role" required>
-    <option value="">-- Select Role --</option>
-    <option value="Provost">Provost</option>
-    <option value="Admission Officer">Admission Officer</option>
-    <option value="Exam Officer">Exam Officer</option>
-    <option value="Bursary">Bursary</option>
-    <option value="Accountant">Accountant</option>
-    <option value="Academic Staff">📚 Academic Staff</option>
-    <option value="Non-Academic Staff">🛠️ Non-Academic Staff</option>
-    <option value="Staff">Staff</option>
-</select>
-                </div>
-                <div class="form-group">
-                    <label>Position *</label>
-                    <input type="text" name="staff_position" required placeholder="Misali: Lecturer, Tutor, Admin Officer...">
-                </div>
-            </div>
-            
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Department</label>
-                    <input type="text" name="staff_department" placeholder="Misali: Computer Science">
-                </div>
-                <div class="form-group">
-                    <label>Branch</label>
-                    <select name="staff_branch">
-                        <option value="SHINGE">A - Shinge</option>
-                        <option value="SABUWA">B - Sabuwar Kofa</option>
-                        <option value="TUDUN">C - Tudun Yola</option>
-                    </select>
-                </div>
-            </div>
-            
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Can Accept Applications?</label>
-                    <select name="staff_can_accept">
-                        <option value="no">No</option>
-                        <option value="yes">Yes</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Date Joined</label>
-                    <input type="date" name="staff_date_joined" value="<?php echo date('Y-m-d'); ?>">
-                </div>
-            </div>
-            
-            <button type="submit" name="add_staff" class="btn btn-green">
-                <i class="fas fa-user-plus"></i> Add Staff
-            </button>
-        </form>
-    </div>
-
-    <!-- SEARCH STUDENT -->
+    <!-- SEARCH STUDENT (GYARA) -->
     <div class="card">
         <div class="card-header">
             <h2><i class="fas fa-search" style="color:#1976d2;"></i> Search Student</h2>
@@ -1291,28 +1249,28 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
         <form method="GET" action="" style="background:#e3f2fd; padding:20px; border-radius:12px;">
             <div class="form-row" style="grid-template-columns: 2fr 1fr 1fr auto;">
                 <div class="form-group">
-                    <label>Search (Name, Reg No, Email, Phone, Username)</label>
-                    <input type="text" name="search" value="<?php echo htmlspecialchars($_GET['search'] ?? ''); ?>" placeholder="Rubuta suna, reg no, email...">
+                    <label>Search (Name, Reg No, Username, Email, Phone)</label>
+                    <input type="text" name="search" value="<?php echo htmlspecialchars($_GET['search'] ?? ''); ?>" placeholder="Rubuta suna, reg no, username, email...">
                 </div>
                 <div class="form-group">
                     <label>Level</label>
                     <select name="search_level">
                         <option value="">-- All --</option>
-                        <option value="NCE I">NCE I</option>
-                        <option value="NCE II">NCE II</option>
-                        <option value="NCE III">NCE III</option>
-                        <option value="400 Level">400 Level</option>
-                        <option value="500 Level">500 Level</option>
+                        <option value="NCE I" <?php echo (isset($_GET['search_level']) && $_GET['search_level'] == 'NCE I') ? 'selected' : ''; ?>>NCE I</option>
+                        <option value="NCE II" <?php echo (isset($_GET['search_level']) && $_GET['search_level'] == 'NCE II') ? 'selected' : ''; ?>>NCE II</option>
+                        <option value="NCE III" <?php echo (isset($_GET['search_level']) && $_GET['search_level'] == 'NCE III') ? 'selected' : ''; ?>>NCE III</option>
+                        <option value="400 Level" <?php echo (isset($_GET['search_level']) && $_GET['search_level'] == '400 Level') ? 'selected' : ''; ?>>400 Level</option>
+                        <option value="500 Level" <?php echo (isset($_GET['search_level']) && $_GET['search_level'] == '500 Level') ? 'selected' : ''; ?>>500 Level</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Status</label>
                     <select name="search_status">
                         <option value="">-- All --</option>
-                        <option value="active">Active</option>
-                        <option value="pending">Pending</option>
-                        <option value="approved">Approved</option>
-                        <option value="rejected">Rejected</option>
+                        <option value="active" <?php echo (isset($_GET['search_status']) && $_GET['search_status'] == 'active') ? 'selected' : ''; ?>>Active</option>
+                        <option value="pending" <?php echo (isset($_GET['search_status']) && $_GET['search_status'] == 'pending') ? 'selected' : ''; ?>>Pending</option>
+                        <option value="approved" <?php echo (isset($_GET['search_status']) && $_GET['search_status'] == 'approved') ? 'selected' : ''; ?>>Approved</option>
+                        <option value="rejected" <?php echo (isset($_GET['search_status']) && $_GET['search_status'] == 'rejected') ? 'selected' : ''; ?>>Rejected</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -1323,6 +1281,60 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
                 </div>
             </div>
         </form>
+        
+        <?php if (isset($search_results)): ?>
+            <div style="margin-top:20px;">
+                <h3 style="margin-bottom:10px; color:#0d2818;">Search Results (<?php echo $search_count; ?>)</h3>
+                
+                <?php if ($search_count > 0): ?>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Reg No</th>
+                                <th>Full Name</th>
+                                <th>Username</th>
+                                <th>Email</th>
+                                <th>Phone</th>
+                                <th>Course</th>
+                                <th>Level</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php while ($row = mysqli_fetch_assoc($search_results)): ?>
+                            <tr>
+                                <td><?php echo $row['id']; ?></td>
+                                <td><strong><?php echo htmlspecialchars($row['reg_no'] ?? '-'); ?></strong></td>
+                                <td><strong><?php echo htmlspecialchars($row['fullname']); ?></strong></td>
+                                <td><span class="username-badge"><?php echo htmlspecialchars($row['username'] ?? '-'); ?></span></td>
+                                <td><?php echo htmlspecialchars($row['email'] ?? '-'); ?></td>
+                                <td><?php echo htmlspecialchars($row['phone'] ?? '-'); ?></td>
+                                <td><?php echo htmlspecialchars($row['course'] ?? '-'); ?></td>
+                                <td><span class="badge badge-<?php echo strtolower(str_replace(' ', '', $row['level'] ?? 'ncei')); ?>"><?php echo $row['level'] ?? 'NCE I'; ?></span></td>
+                                <td><span class="badge badge-<?php echo $row['status'] ?? 'pending'; ?>"><?php echo ucfirst($row['status'] ?? 'Pending'); ?></span></td>
+                                <td class="action-btns">
+                                    <a href="#" class="view-btn" onclick="viewFullRecord(<?php echo $row['id']; ?>); return false;" title="View Full Record"><i class="fas fa-id-card"></i></a>
+                                    <a href="#" class="stats-btn" onclick="viewDownloadStats(<?php echo $row['id']; ?>); return false;" title="Download Stats"><i class="fas fa-chart-bar"></i></a>
+                                    <a href="#" class="edit-btn" onclick="editStudent(<?php echo $row['id']; ?>); return false;" title="Edit"><i class="fas fa-edit"></i></a>
+                                    <a href="#" class="pass-btn" onclick="changeStudentPassword(<?php echo $row['id']; ?>); return false;" title="Password"><i class="fas fa-key"></i></a>
+                                </td>
+                            </tr>
+                            <?php endwhile; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <?php else: ?>
+                    <div style="text-align:center; padding:30px; background:#fff3e0; border-radius:10px;">
+                        <i class="fas fa-search" style="font-size:2rem; display:block; margin-bottom:10px; color:#e65100;"></i>
+                        <p style="color:#e65100; font-weight:600;">Babu ɗalibin da ya dace da bincikenka.</p>
+                        <p style="font-size:0.85rem; color:#6a8f6a;">Gwada da wani abu dabam ko ka share filters ɗin.</p>
+                    </div>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
     </div>
 
     <!-- IMPORT STUDENTS -->
@@ -1409,6 +1421,111 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
         </form>
     </div>
 
+    <!-- ADD STAFF -->
+    <div class="card">
+        <div class="card-header">
+            <h2>➕ Add New Staff</h2>
+            <span style="color:#6a8f6a; font-size:0.9rem;">Ƙara sabon ma'aikaci</span>
+        </div>
+        
+        <?php if (isset($staff_success)): ?><div class="alert alert-success"><?php echo $staff_success; ?></div><?php endif; ?>
+        <?php if (isset($staff_error)): ?><div class="alert alert-error"><?php echo $staff_error; ?></div><?php endif; ?>
+        
+        <form method="POST">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Full Name *</label>
+                    <input type="text" name="staff_fullname" required>
+                </div>
+                <div class="form-group">
+                    <label>Email *</label>
+                    <input type="email" name="staff_email" required>
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Phone *</label>
+                    <input type="tel" name="staff_phone" required>
+                </div>
+                <div class="form-group">
+                    <label>Username *</label>
+                    <input type="text" name="staff_username" required placeholder="Don login">
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Password *</label>
+                    <input type="text" name="staff_password" value="staff123" required>
+                    <div class="hint">Default: staff123</div>
+                </div>
+                <div class="form-group">
+                    <label>Gender</label>
+                    <select name="staff_gender">
+                        <option value="">-- Select --</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Role *</label>
+                    <select name="staff_role" required>
+                        <option value="">-- Select Role --</option>
+                        <option value="Provost">Provost</option>
+                        <option value="Admission Officer">Admission Officer</option>
+                        <option value="Exam Officer">Exam Officer</option>
+                        <option value="Bursary">Bursary</option>
+                        <option value="Accountant">Accountant</option>
+                        <option value="Academic Staff">📚 Academic Staff</option>
+                        <option value="Non-Academic Staff">🛠️ Non-Academic Staff</option>
+                        <option value="Staff">Staff</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Position *</label>
+                    <input type="text" name="staff_position" required placeholder="Misali: Lecturer, Tutor, Admin Officer...">
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Department</label>
+                    <input type="text" name="staff_department" placeholder="Misali: Computer Science">
+                </div>
+                <div class="form-group">
+                    <label>Branch</label>
+                    <select name="staff_branch">
+                        <option value="SHINGE">A - Shinge</option>
+                        <option value="SABUWA">B - Sabuwar Kofa</option>
+                        <option value="TUDUN">C - Tudun Yola</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Can Accept Applications?</label>
+                    <select name="staff_can_accept">
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Date Joined</label>
+                    <input type="date" name="staff_date_joined" value="<?php echo date('Y-m-d'); ?>">
+                </div>
+            </div>
+            
+            <button type="submit" name="add_staff" class="btn btn-green">
+                <i class="fas fa-user-plus"></i> Add Staff
+            </button>
+        </form>
+    </div>
+
     <!-- STUDENTS LIST -->
     <div class="card">
         <div class="card-header">
@@ -1431,8 +1548,16 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
             <table>
                 <thead>
                     <tr>
-                        <th>ID</th><th>Reg No</th><th>Full Name</th><th>Gender</th><th>Course</th>
-                        <th>Level</th><th>Entry Year</th><th>Status</th><th>Actions</th>
+                        <th>ID</th>
+                        <th>Reg No</th>
+                        <th>Full Name</th>
+                        <th>Username</th>
+                        <th>Gender</th>
+                        <th>Course</th>
+                        <th>Level</th>
+                        <th>Entry Year</th>
+                        <th>Status</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1440,8 +1565,9 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
                         <?php while ($row = mysqli_fetch_assoc($students_result)): ?>
                         <tr>
                             <td><?php echo $row['id']; ?></td>
-                            <td><?php echo htmlspecialchars($row['reg_no'] ?? '-'); ?></td>
+                            <td><strong><?php echo htmlspecialchars($row['reg_no'] ?? '-'); ?></strong></td>
                             <td><?php echo htmlspecialchars($row['fullname'] ?? ''); ?></td>
+                            <td><span class="username-badge"><?php echo htmlspecialchars($row['username'] ?? '-'); ?></span></td>
                             <td><?php echo htmlspecialchars($row['gender'] ?? '—'); ?></td>
                             <td><?php echo htmlspecialchars($row['course'] ?? ''); ?></td>
                             <td>
@@ -1456,7 +1582,8 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
                                 </span>
                             </td>
                             <td class="action-btns">
-                                <a href="#" class="view-btn" onclick="viewFullRecord(<?php echo $row['id']; ?>); return false;" title="View"><i class="fas fa-id-card"></i></a>
+                                <a href="#" class="view-btn" onclick="viewFullRecord(<?php echo $row['id']; ?>); return false;" title="View Full Record"><i class="fas fa-id-card"></i></a>
+                                <a href="#" class="stats-btn" onclick="viewDownloadStats(<?php echo $row['id']; ?>); return false;" title="Download Stats"><i class="fas fa-chart-bar"></i></a>
                                 <a href="student_id_card.php?student_id=<?php echo $row['id']; ?>" class="idcard-btn" title="ID Card" target="_blank"><i class="fas fa-user-circle"></i></a>
                                 <a href="student_tp_result.php?student_id=<?php echo $row['id']; ?>" class="tp-btn" title="T.P Result" target="_blank"><i class="fas fa-chalkboard-teacher"></i></a>
                                 <a href="?change_student_status=<?php echo $row['id']; ?>&status=active" class="accept-btn" title="Activate"><i class="fas fa-check"></i></a>
@@ -1468,7 +1595,7 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
                         </tr>
                         <?php endwhile; ?>
                     <?php else: ?>
-                        <tr><td colspan="9" style="text-align:center; padding:30px; color:#6a8f6a;">No students found.</td></tr>
+                        <tr><td colspan="10" style="text-align:center; padding:30px; color:#6a8f6a;">No students found.</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>
@@ -1488,8 +1615,14 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
             <table>
                 <thead>
                     <tr>
-                        <th>ID</th><th>Staff ID</th><th>Name</th><th>Email</th>
-                        <th>Phone</th><th>Position</th><th>Role</th><th>Actions</th>
+                        <th>ID</th>
+                        <th>Staff ID</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Phone</th>
+                        <th>Position</th>
+                        <th>Role</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1617,6 +1750,21 @@ if (isset($_GET['change_student_status']) && is_numeric($_GET['change_student_st
             <i class="fas fa-id-card" style="color:#7b1fa2;"></i> Full Student Record
         </h2>
         <div id="fullRecordContent">
+            <p style="text-align:center; padding:40px; color:#6a8f6a;">
+                <i class="fas fa-spinner fa-spin" style="font-size:2rem;"></i><br>Loading...
+            </p>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: DOWNLOAD STATS -->
+<div class="modal-overlay" id="downloadStatsModal" style="display:none;">
+    <div class="modal-content" style="max-width:800px;">
+        <button class="modal-close" onclick="closeModal('downloadStatsModal')">&times;</button>
+        <h2 style="margin-bottom:20px; color:#0d2818;">
+            <i class="fas fa-chart-bar" style="color:#e65100;"></i> Student Download Statistics
+        </h2>
+        <div id="downloadStatsContent">
             <p style="text-align:center; padding:40px; color:#6a8f6a;">
                 <i class="fas fa-spinner fa-spin" style="font-size:2rem;"></i><br>Loading...
             </p>
@@ -1779,18 +1927,18 @@ function editStaff(id) {
                     <div class="form-group"><label>Username</label><input type="text" name="username" value="${data.username}" required></div>
                 </div>
                 <div class="form-row">
-                   <div class="form-group"><label>Role</label>
-    <select name="role">
-        <option value="Provost" ${data.role == 'Provost' ? 'selected' : ''}>Provost</option>
-        <option value="Admission Officer" ${data.role == 'Admission Officer' ? 'selected' : ''}>Admission Officer</option>
-        <option value="Bursary" ${data.role == 'Bursary' ? 'selected' : ''}>Bursary</option>
-        <option value="Accountant" ${data.role == 'Accountant' ? 'selected' : ''}>Accountant</option>
-        <option value="Exam Officer" ${data.role == 'Exam Officer' ? 'selected' : ''}>Exam Officer</option>
-        <option value="Academic Staff" ${data.role == 'Academic Staff' ? 'selected' : ''}>📚 Academic Staff</option>
-        <option value="Non-Academic Staff" ${data.role == 'Non-Academic Staff' ? 'selected' : ''}>🛠️ Non-Academic Staff</option>
-        <option value="Staff" ${data.role == 'Staff' ? 'selected' : ''}>Staff</option>
-    </select>
-</div>
+                    <div class="form-group"><label>Role</label>
+                        <select name="role">
+                            <option value="Provost" ${data.role == 'Provost' ? 'selected' : ''}>Provost</option>
+                            <option value="Admission Officer" ${data.role == 'Admission Officer' ? 'selected' : ''}>Admission Officer</option>
+                            <option value="Bursary" ${data.role == 'Bursary' ? 'selected' : ''}>Bursary</option>
+                            <option value="Accountant" ${data.role == 'Accountant' ? 'selected' : ''}>Accountant</option>
+                            <option value="Exam Officer" ${data.role == 'Exam Officer' ? 'selected' : ''}>Exam Officer</option>
+                            <option value="Academic Staff" ${data.role == 'Academic Staff' ? 'selected' : ''}>📚 Academic Staff</option>
+                            <option value="Non-Academic Staff" ${data.role == 'Non-Academic Staff' ? 'selected' : ''}>🛠️ Non-Academic Staff</option>
+                            <option value="Staff" ${data.role == 'Staff' ? 'selected' : ''}>Staff</option>
+                        </select>
+                    </div>
                     <div class="form-group"><label>Position</label><input type="text" name="position" value="${data.position || ''}"></div>
                 </div>
                 <input type="hidden" name="edit_staff" value="1">
@@ -1835,8 +1983,9 @@ function viewFullRecord(id) {
             html += '<div style="background:#0d2818; color:white; padding:20px; border-radius:12px; margin-bottom:20px;">';
             html += '<h2 style="color:#ffd54f; margin-bottom:10px;">' + s.fullname + '</h2>';
             html += '<p style="font-size:0.9rem; color:#c8e6c9;">';
-            html += 'Reg No: <strong>' + s.reg_no + '</strong> | Course: <strong>' + s.course + '</strong><br>';
-            html += 'Level: <strong>' + s.level + '</strong> | Entry: <strong>' + (s.entry_year || '—') + '</strong> | Grad: <strong>' + (s.graduation_year || '—') + '</strong><br>';
+            html += 'Reg No: <strong>' + s.reg_no + '</strong> | Username: <strong>' + (s.username || '—') + '</strong><br>';
+            html += 'Course: <strong>' + s.course + '</strong> | Level: <strong>' + s.level + '</strong><br>';
+            html += 'Entry: <strong>' + (s.entry_year || '—') + '</strong> | Grad: <strong>' + (s.graduation_year || '—') + '</strong><br>';
             html += 'Email: <strong>' + s.email + '</strong> | Phone: <strong>' + s.phone + '</strong> | Status: <strong>' + s.status.toUpperCase() + '</strong>';
             html += '</p></div>';
             content.innerHTML = html;
@@ -1846,43 +1995,68 @@ function viewFullRecord(id) {
         });
 }
 
-function loadDownloadStats() {
-    var container = document.getElementById('downloadStatsContainer');
-    if (!container) return;
-    fetch('get_student_download_stats.php')
-        .then(r => r.json())
+function viewDownloadStats(studentId) {
+    var modal = document.getElementById('downloadStatsModal');
+    var content = document.getElementById('downloadStatsContent');
+    
+    modal.style.display = 'block';
+    content.innerHTML = '<p style="text-align:center; padding:40px; color:#6a8f6a;"><i class="fas fa-spinner fa-spin" style="font-size:2rem;"></i><br>Loading...</p>';
+    
+    fetch('get_download_stats.php?student_id=' + studentId)
+        .then(response => response.json())
         .then(data => {
             if (!data.success) {
-                container.innerHTML = '<p style="color:red;">Error loading stats</p>';
+                content.innerHTML = '<div class="alert alert-error">❌ ' + (data.message || 'Error') + '</div>';
                 return;
             }
+            
             var html = '';
-            html += '<div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; margin-bottom:20px;">';
-            var colors = ['#1976d2', '#7b1fa2', '#f57c00', '#2e7d32', '#c62828', '#00695c', '#e65100', '#455a64'];
-            var i = 0;
-            for (var key in data.downloads) {
-                var item = data.downloads[key];
-                html += '<div style="background:#f8faf8; padding:15px; border-radius:10px; text-align:center; border-left:4px solid ' + colors[i % colors.length] + ';">';
-                html += '<div style="font-size:1.8rem; font-weight:900; color:' + colors[i % colors.length] + ';">' + item.count + '</div>';
-                html += '<div style="font-size:0.75rem; color:#6a8f6a; font-weight:700; text-transform:uppercase;">' + item.label + '</div>';
+            html += '<div style="background:#0d2818; color:white; padding:15px 20px; border-radius:10px; margin-bottom:20px;">';
+            html += '<h3 style="color:#ffd54f; margin-bottom:5px;">' + data.student.fullname + '</h3>';
+            html += '<p style="font-size:0.85rem; color:#c8e6c9;">Reg No: ' + (data.student.reg_no || '—') + ' | Level: ' + (data.student.level || '—') + '</p>';
+            html += '</div>';
+            
+            if (data.stats && data.stats.length > 0) {
+                html += '<table style="width:100%; border-collapse:collapse; font-size:0.85rem;">';
+                html += '<thead><tr style="background:#0d2818; color:white;">';
+                html += '<th style="padding:10px; text-align:left;">Document</th>';
+                html += '<th style="padding:10px; text-align:center;">Downloads</th>';
+                html += '<th style="padding:10px; text-align:center;">Prints</th>';
+                html += '<th style="padding:10px; text-align:center;">Last Access</th>';
+                html += '</tr></thead><tbody>';
+                
+                data.stats.forEach(function(item) {
+                    html += '<tr>';
+                    html += '<td style="padding:10px; border-bottom:1px solid #eee;">';
+                    html += '<i class="fas fa-file-alt" style="color:#2e7d32; margin-right:8px;"></i>';
+                    html += item.document_label;
+                    html += '</td>';
+                    html += '<td style="padding:10px; text-align:center; border-bottom:1px solid #eee;">';
+                    html += '<span style="background:#e8f5e9; color:#2e7d32; padding:3px 10px; border-radius:12px; font-weight:700;">' + item.download_count + '</span>';
+                    html += '</td>';
+                    html += '<td style="padding:10px; text-align:center; border-bottom:1px solid #eee;">';
+                    html += '<span style="background:#fff3e0; color:#e65100; padding:3px 10px; border-radius:12px; font-weight:700;">' + item.print_count + '</span>';
+                    html += '</td>';
+                    html += '<td style="padding:10px; text-align:center; border-bottom:1px solid #eee; font-size:0.8rem; color:#6a8f6a;">';
+                    html += item.last_access || '—';
+                    html += '</td>';
+                    html += '</tr>';
+                });
+                
+                html += '</tbody></table>';
+            } else {
+                html += '<div style="text-align:center; padding:40px; background:#f8faf8; border-radius:10px;">';
+                html += '<i class="fas fa-chart-bar" style="font-size:3rem; color:#dce8dc; display:block; margin-bottom:10px;"></i>';
+                html += '<p style="color:#6a8f6a;">This student has not downloaded any document yet.</p>';
                 html += '</div>';
-                i++;
             }
-            html += '<div style="background:#fff3e0; padding:15px; border-radius:10px; text-align:center; border-left:4px solid #e65100;">';
-            html += '<div style="font-size:1.8rem; font-weight:900; color:#e65100;">' + data.name_changes + '</div>';
-            html += '<div style="font-size:0.75rem; color:#6a8f6a; font-weight:700; text-transform:uppercase;">Name Changes</div>';
-            html += '</div>';
-            html += '</div>';
-            container.innerHTML = html;
+            
+            content.innerHTML = html;
         })
-        .catch(err => {
-            container.innerHTML = '<p style="color:red;">Error: ' + err.message + '</p>';
+        .catch(error => {
+            content.innerHTML = '<div class="alert alert-error">❌ Error: ' + error.message + '</div>';
         });
 }
-
-document.addEventListener('DOMContentLoaded', function() {
-    loadDownloadStats();
-});
 </script>
 
 </body>

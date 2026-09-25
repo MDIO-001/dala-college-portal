@@ -12,6 +12,56 @@ $success = '';
 $error = '';
 
 // ============================================
+// FUNCTION: CALCULATE REGISTRATION SESSION
+// Session = Entry Year + (Registration Level - 1)
+// ============================================
+function calculateRegistrationSession($entry_year, $registration_level) {
+    // Get entry year start (e.g., "2026/2027" → 2026)
+    $entry = intval(explode('/', $entry_year ?? '2026/2027')[0]);
+    
+    // Get level number
+    $level_num = 1;
+    $level_upper = strtoupper(trim($registration_level));
+    
+    if (in_array($level_upper, ['NCE I', 'NCEI', 'NCE 1'])) {
+        $level_num = 1;
+    } elseif (in_array($level_upper, ['NCE II', 'NCEII', 'NCE 2'])) {
+        $level_num = 2;
+    } elseif (in_array($level_upper, ['NCE III', 'NCEIII', 'NCE 3'])) {
+        $level_num = 3;
+    } elseif (in_array($level_upper, ['400 LEVEL', '400L', '400'])) {
+        $level_num = 1;
+    } elseif (in_array($level_upper, ['500 LEVEL', '500L', '500'])) {
+        $level_num = 2;
+    }
+    
+    // Calculate session
+    $session_start = $entry + ($level_num - 1);
+    $session_end = $session_start + 1;
+    
+    return $session_start . '/' . $session_end;
+}
+
+// ============================================
+// FUNCTION: CALCULATE GRADUATION YEAR
+// ============================================
+function calculateGraduationYear($entry_year, $programme) {
+    $entry = intval(explode('/', $entry_year ?? '2026/2027')[0]);
+    $programme_upper = strtoupper(trim($programme));
+    
+    // NCE = 3 years, Degree = 2 years
+    $duration = 3;
+    if (strpos($programme_upper, 'DEG') !== false) {
+        $duration = 2;
+    }
+    
+    $grad_start = $entry + $duration;
+    $grad_end = $grad_start + 1;
+    
+    return $grad_start . '/' . $grad_end;
+}
+
+// ============================================
 // FETCH STUDENT DATA
 // ============================================
 $query = "SELECT * FROM students WHERE id = $student_id";
@@ -26,13 +76,18 @@ if (!$student) {
 $student_branch = $student['branch_code'] ?? 'SHINGE';
 $student_programme = strtoupper(trim($student['programme'] ?? 'NCE'));
 
-// MUHIMMI: Yi amfani da 'combination' idan akwai, in ba haka ba 'course'
+// Use 'combination' if available, otherwise 'course'
 $student_combination = !empty($student['combination']) 
     ? trim($student['combination']) 
     : trim($student['course']);
 
 // ============================================
-// ƘAYYADE LEVELS BISA GA PROGRAMME
+// ENTRY YEAR
+// ============================================
+$student_entry_year = $student['entry_year'] ?? $student['admission_year'] ?? '2026/2027';
+
+// ============================================
+// DETERMINE LEVELS BASED ON PROGRAMME
 // ============================================
 if ($student_programme == 'NCE') {
     $levels = ['NCE I', 'NCE II', 'NCE III'];
@@ -53,7 +108,12 @@ if ($student_programme == 'NCE') {
 // ============================================
 $selected_level = isset($_POST['level']) ? mysqli_real_escape_string($conn, $_POST['level']) : $default_level;
 $selected_semester = isset($_POST['semester']) ? mysqli_real_escape_string($conn, $_POST['semester']) : 'First Semester';
-$academic_year = '2026/2027';
+
+// ============================================
+// CALCULATE SESSION (Based on Entry Year + Selected Level)
+// ============================================
+$academic_year = calculateRegistrationSession($student_entry_year, $selected_level);
+$graduation_year = calculateGraduationYear($student_entry_year, $student_programme);
 
 // ============================================
 // HANDLE COURSE REGISTRATION
@@ -71,7 +131,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['register_courses'])) {
         foreach ($selected_courses as $course_code) {
             $course_code = mysqli_real_escape_string($conn, $course_code);
             
-            // Duba daidai da level, semester, da academic_year
+            // Check if already registered
             $check = "SELECT id FROM course_registrations 
                       WHERE student_id = $student_id 
                       AND course_code = '$course_code' 
@@ -86,7 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['register_courses'])) {
                 continue;
             }
             
-            // Nemo bayanan course
+            // Get course data
             $course_query = "SELECT * FROM courses WHERE course_code = '$course_code' LIMIT 1";
             $course_result = mysqli_query($conn, $course_query);
             $course = mysqli_fetch_assoc($course_result);
@@ -119,9 +179,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['register_courses'])) {
         }
         
         if ($registered > 0) {
-            $success = "✅ $registered course(s) registered successfully!";
+            $success = "✅ $registered course(s) registered successfully for $selected_level — $selected_semester — $academic_year!";
             if ($already > 0) {
-                $success .= "<br>⚠️ $already course(s) already registered for this level/semester.";
+                $success .= "<br>⚠️ $already course(s) already registered.";
             }
             if ($failed > 0) {
                 $success .= "<br>❌ $failed course(s) failed to register.";
@@ -274,7 +334,7 @@ $semesters = ['First Semester', 'Second Semester'];
             border-radius: 12px;
             margin-bottom: 25px;
             display: grid;
-            grid-template-columns: 1fr 1fr auto;
+            grid-template-columns: 1fr 1fr 1fr auto;
             gap: 15px;
             align-items: end;
         }
@@ -285,13 +345,20 @@ $semesters = ['First Semester', 'Second Semester'];
             margin-bottom: 5px;
             font-size: 0.9rem;
         }
-        .filter-box select {
+        .filter-box select, .filter-box input {
             width: 100%;
             padding: 10px 15px;
             border: 2px solid #2e7d32;
             border-radius: 8px;
             font-size: 0.95rem;
             background: white;
+        }
+        .filter-box input[readonly] {
+            background: #fff9c4;
+            font-weight: 700;
+            color: #0d2818;
+            border-color: #f9a825;
+            cursor: not-allowed;
         }
         .filter-box select:focus {
             outline: none;
@@ -313,10 +380,16 @@ $semesters = ['First Semester', 'Second Semester'];
             background: #1b5e20;
             transform: translateY(-2px);
         }
+        .filter-box .hint {
+            font-size: 0.72rem;
+            color: #e65100;
+            margin-top: 3px;
+            font-weight: 600;
+        }
         
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(4, 1fr);
             gap: 15px;
             margin-bottom: 25px;
         }
@@ -325,11 +398,16 @@ $semesters = ['First Semester', 'Second Semester'];
             padding: 15px;
             border-radius: 10px;
             text-align: center;
+            border-top: 3px solid #2e7d32;
         }
         .stat-card .number { font-size: 1.8rem; font-weight: 800; color: #2e7d32; }
-        .stat-card .label { font-size: 0.8rem; color: #6a8f6a; }
+        .stat-card .label { font-size: 0.8rem; color: #6a8f6a; font-weight: 600; }
+        .stat-card.blue { border-top-color: #1976d2; }
         .stat-card.blue .number { color: #1976d2; }
+        .stat-card.purple { border-top-color: #7b1fa2; }
         .stat-card.purple .number { color: #7b1fa2; font-size: 1.2rem; }
+        .stat-card.orange { border-top-color: #f57c00; }
+        .stat-card.orange .number { color: #f57c00; font-size: 1.3rem; }
         
         .course-list {
             display: grid;
@@ -480,6 +558,17 @@ $semesters = ['First Semester', 'Second Semester'];
         
         .badge { display: inline-block; padding: 3px 12px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; }
         .badge-approved { background: #e8f5e9; color: #2e7d32; }
+        
+        .session-badge {
+            display: inline-block;
+            background: #fff9c4;
+            color: #0d2818;
+            padding: 3px 12px;
+            border-radius: 12px;
+            font-weight: 800;
+            font-size: 0.8rem;
+            border: 2px solid #f9a825;
+        }
         
         /* ============ PRINT HEADER ============ */
         .print-header {
@@ -649,7 +738,7 @@ $semesters = ['First Semester', 'Second Semester'];
         @media (max-width: 768px) {
             .container { padding: 15px; }
             .filter-box { grid-template-columns: 1fr; }
-            .stats-grid { grid-template-columns: 1fr; }
+            .stats-grid { grid-template-columns: 1fr 1fr; }
             .course-list { grid-template-columns: 1fr; }
         }
         
@@ -754,7 +843,7 @@ $semesters = ['First Semester', 'Second Semester'];
                     <span class="check">✅</span> Accredited by National Commission for Colleges of Education (NCCE), Abuja
                 </div>
                 <div class="contact-info">
-                    🌐 www.dalacollege.edu.ng <span>|</span> 📧 dalacollegekano@gmail.com
+                    🌐 www.dalacoe.edu.ng <span>|</span> 📧 info@dalacoe.edu.ng
                 </div>
                 <div class="form-title">Course Registration Form (CRF) — <?php echo $academic_year; ?> Academic Session</div>
             </div>
@@ -783,12 +872,24 @@ $semesters = ['First Semester', 'Second Semester'];
                         <span class="value"><?php echo htmlspecialchars($student['programme'] ?? 'NCE'); ?></span>
                     </div>
                     <div class="row">
-                        <span class="label">Level:</span>
+                        <span class="label">Entry Year:</span>
+                        <span class="value"><?php echo htmlspecialchars($student_entry_year); ?></span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Registration Level:</span>
                         <span class="value"><?php echo htmlspecialchars($selected_level); ?></span>
                     </div>
                     <div class="row">
                         <span class="label">Semester:</span>
                         <span class="value"><?php echo htmlspecialchars($selected_semester); ?></span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Academic Session:</span>
+                        <span class="value"><?php echo htmlspecialchars($academic_year); ?></span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Expected Graduation:</span>
+                        <span class="value"><?php echo htmlspecialchars($graduation_year); ?></span>
                     </div>
                     <div class="row">
                         <span class="label">Registration Date:</span>
@@ -806,7 +907,8 @@ $semesters = ['First Semester', 'Second Semester'];
         <h1><i class="fas fa-book" style="color:#2e7d32;"></i> Course Registration</h1>
         <p class="sub">
             Combination: <strong><?php echo htmlspecialchars($student_combination); ?></strong> | 
-            Select Level and Semester to view available courses
+            Entry Year: <strong><?php echo htmlspecialchars($student_entry_year); ?></strong> | 
+            Select Level and Semester to register courses
         </p>
 
         <?php if ($success): ?>
@@ -818,8 +920,8 @@ $semesters = ['First Semester', 'Second Semester'];
 
         <form method="POST" action="" class="filter-box no-print">
             <div class="form-group">
-                <label><i class="fas fa-layer-group"></i> Select Level</label>
-                <select name="level">
+                <label><i class="fas fa-layer-group"></i> Registration Level</label>
+                <select name="level" onchange="this.form.submit()">
                     <?php foreach ($levels as $lvl): ?>
                         <option value="<?php echo $lvl; ?>" <?php echo ($selected_level == $lvl) ? 'selected' : ''; ?>>
                             <?php echo $lvl; ?>
@@ -829,13 +931,18 @@ $semesters = ['First Semester', 'Second Semester'];
             </div>
             <div class="form-group">
                 <label><i class="fas fa-calendar-alt"></i> Select Semester</label>
-                <select name="semester">
+                <select name="semester" onchange="this.form.submit()">
                     <?php foreach ($semesters as $sem): ?>
                         <option value="<?php echo $sem; ?>" <?php echo ($selected_semester == $sem) ? 'selected' : ''; ?>>
                             <?php echo $sem; ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
+            </div>
+            <div class="form-group">
+                <label><i class="fas fa-calendar-check"></i> Academic Session (Auto)</label>
+                <input type="text" value="<?php echo $academic_year; ?>" readonly>
+                <div class="hint">ⓘ Session = Entry Year (<?php echo $student_entry_year; ?>) + Level</div>
             </div>
             <button type="submit" class="btn-filter">
                 <i class="fas fa-filter"></i> View Courses
@@ -845,15 +952,19 @@ $semesters = ['First Semester', 'Second Semester'];
         <div class="stats-grid no-print">
             <div class="stat-card">
                 <div class="number"><?php echo count($registered_courses); ?></div>
-                <div class="label">📚 Registered (<?php echo $selected_level; ?>)</div>
+                <div class="label">📚 Registered</div>
             </div>
             <div class="stat-card blue">
                 <div class="number"><?php echo $total_available; ?></div>
-                <div class="label">📖 Available (<?php echo $selected_semester; ?>)</div>
+                <div class="label">📖 Available</div>
             </div>
             <div class="stat-card purple">
                 <div class="number"><?php echo htmlspecialchars($student_combination); ?></div>
-                <div class="label">📌 Your Combination</div>
+                <div class="label">📌 Combination</div>
+            </div>
+            <div class="stat-card orange">
+                <div class="number" style="font-size:1.1rem; padding-top:8px;"><?php echo $academic_year; ?></div>
+                <div class="label">📅 Session</div>
             </div>
         </div>
 
@@ -901,7 +1012,19 @@ $semesters = ['First Semester', 'Second Semester'];
 
         <?php if ($registered_result && mysqli_num_rows($registered_result) > 0): ?>
         <div class="registered-list">
-            <h3 class="no-print"><i class="fas fa-check-circle" style="color:#2e7d32;"></i> Registered Courses (<?php echo $selected_level; ?> - <?php echo $selected_semester; ?>)</h3>
+            <h3 class="no-print">
+                <i class="fas fa-check-circle" style="color:#2e7d32;"></i> 
+                Registered Courses — 
+                <span style="background:#e8f5e9; padding:3px 10px; border-radius:8px;">
+                    <?php echo $selected_level; ?>
+                </span>
+                <span style="background:#e3f2fd; padding:3px 10px; border-radius:8px;">
+                    <?php echo $selected_semester; ?>
+                </span>
+                <span class="session-badge">
+                    <?php echo $academic_year; ?>
+                </span>
+            </h3>
             
             <table>
                 <thead>
