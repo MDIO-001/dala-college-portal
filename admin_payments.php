@@ -164,7 +164,7 @@ $cq = mysqli_query($conn, "SELECT DISTINCT combination FROM students WHERE combi
 while ($c = mysqli_fetch_assoc($cq)) $combinations_list[] = $c['combination'];
 
 $session_options = ['2023/2024', '2024/2025', '2025/2026', '2026/2027'];
-$level_options = ['NCE I', 'NCE II', 'NCE III'];
+$level_options = ['NCE I', 'NCE II', 'NCE III', '400 Level', '500 Level'];
 
 date_default_timezone_set('Africa/Lagos');
 $current_date = date('l, F j, Y');

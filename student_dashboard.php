@@ -97,6 +97,15 @@ if (!$student) {
 // ============================================
 $is_approved = ($student['status'] == 'active' || $student['status'] == 'approved');
 
+// ============================================
+// CHECK IF STUDENT IS DEGREE
+// ============================================
+$programme_upper = strtoupper($student['programme'] ?? 'NCE');
+$is_degree = (strpos($programme_upper, 'DEGREE') !== false || strpos($programme_upper, 'DEG') !== false);
+
+// ============================================
+// GET APPLICATION
+// ============================================
 $app_query = "SELECT * FROM applications WHERE email = '{$student['email']}' OR student_id = '{$student['id']}' LIMIT 1";
 $app_result = mysqli_query($conn, $app_query);
 $application = mysqli_fetch_assoc($app_result);
@@ -108,6 +117,15 @@ if ($application && ($application['status'] == 'approved' || $is_approved)) {
     $can_download_letter = true;
 }
 
+// ============================================
+// ADMISSION LETTER LINK (NCE ko DEGREE)
+// ============================================
+$admission_letter_link = $is_degree ? 'admission_letter_degree.php' : 'admission_letter.php';
+$admission_letter_label = $is_degree ? 'Degree Admission Letter' : 'NCE Admission Letter';
+
+// ============================================
+// BRANCH NAMES
+// ============================================
 $branch_names = [
     'SHINGE' => 'A - Shinge',
     'SABUWA' => 'B - Sabuwar Kofa',
@@ -115,6 +133,9 @@ $branch_names = [
 ];
 $branch_display = isset($branch_names[$student['branch_code']]) ? $branch_names[$student['branch_code']] : $student['branch_code'];
 
+// ============================================
+// PHOTO PATH
+// ============================================
 $photo_path = 'uploads/students/';
 $photo_file = !empty($student['photo']) ? $photo_path . $student['photo'] : 'assets/default-avatar.png';
 
@@ -263,10 +284,10 @@ $current_date = date('l, F j, Y');
             <div class="admission-banner approved">
                 <div>
                     <h3>🎉 Congratulations! Your Application is Approved</h3>
-                    <p>You can now download your <strong>Admission Letter</strong>.</p>
+                    <p>You can now download your <strong><?php echo $admission_letter_label; ?></strong>.</p>
                 </div>
-                <a href="admission_letter.php" class="btn-download">
-                    <i class="fas fa-download"></i> Download Admission Letter
+                <a href="<?php echo $admission_letter_link; ?>" class="btn-download">
+                    <i class="fas fa-download"></i> Download <?php echo $admission_letter_label; ?>
                 </a>
             </div>
         <?php else: ?>
@@ -341,6 +362,7 @@ $current_date = date('l, F j, Y');
                 <div class="info-item"><span class="label">Programme</span><span class="value"><?php echo htmlspecialchars($student['programme']); ?></span></div>
                 <div class="info-item"><span class="label">Course</span><span class="value"><?php echo htmlspecialchars($student['course']); ?></span></div>
                 <div class="info-item"><span class="label">Level</span><span class="value"><?php echo htmlspecialchars($student['level'] ?? 'NCE I'); ?></span></div>
+                <div class="info-item"><span class="label">Entry Year</span><span class="value"><?php echo htmlspecialchars($student['entry_year'] ?? '—'); ?></span></div>
                 <div class="info-item"><span class="label">Phone</span><span class="value"><?php echo htmlspecialchars($student['phone']); ?></span></div>
                 <div class="info-item"><span class="label">Gender</span><span class="value"><?php echo htmlspecialchars($student['gender'] ?? 'Not provided'); ?></span></div>
                 <div class="info-item"><span class="label">Date of Birth</span><span class="value"><?php echo !empty($student['dob']) ? htmlspecialchars($student['dob']) : 'Not provided'; ?></span></div>
@@ -378,12 +400,12 @@ $current_date = date('l, F j, Y');
                         </div>
                     </a>
                     
-                    <!-- ADMISSION LETTER -->
+                    <!-- ADMISSION LETTER (NCE OR DEGREE) -->
                     <?php if ($can_download_letter): ?>
-                        <a href="admission_letter.php" class="action-btn">
+                        <a href="<?php echo $admission_letter_link; ?>" class="action-btn">
                             <div class="icon" style="color:#2e7d32;"><i class="fas fa-file-download"></i></div>
                             <div>
-                                <div class="text">Admission Letter</div>
+                                <div class="text"><?php echo $admission_letter_label; ?></div>
                                 <div class="sub-text">Download your admission letter</div>
                             </div>
                         </a>
@@ -396,15 +418,6 @@ $current_date = date('l, F j, Y');
                             </div>
                         </div>
                     <?php endif; ?>
-                    
-                    <!-- INTRODUCTORY LETTER -->
-                    <a href="introductory_letter.php" class="action-btn">
-                        <div class="icon" style="color:#5d4037;"><i class="fas fa-file-alt"></i></div>
-                        <div>
-                            <div class="text">Introductory Letter</div>
-                            <div class="sub-text">For Teaching Practice</div>
-                        </div>
-                    </a>
                     
                     <!-- COURSE REGISTRATION -->
                     <a href="course_registration.php" class="action-btn">
@@ -424,33 +437,60 @@ $current_date = date('l, F j, Y');
                         </div>
                     </a>
                     
-                    <!-- PRINT RECEIPT -->
-                    <a href="print_receipt.php" class="action-btn">
-                        <div class="icon"><i class="fas fa-receipt"></i></div>
+                    <!-- VIEW RESULTS -->
+                    <a href="view_result.php" class="action-btn">
+                        <div class="icon" style="color:#7b1fa2;"><i class="fas fa-chart-bar"></i></div>
                         <div>
-                            <div class="text">Print Receipt</div>
-                            <div class="sub-text">Download payment receipt</div>
+                            <div class="text">View My Results</div>
+                            <div class="sub-text">Check your semester results</div>
+                        </div>
+                    </a>
+                    
+                    <!-- PAYMENT SUMMARY RECEIPT -->
+<a href="student_payments_summary_receipt.php" class="action-btn">
+    <div class="icon" style="color:#1976d2;"><i class="fas fa-file-invoice-dollar"></i></div>
+    <div>
+        <div class="text">Payment Summary</div>
+        <div class="sub-text">All payments + QR code</div>
+    </div>
+</a>
+                    
+                    <!-- PAYMENT GATEWAY -->
+                    <a href="student_payments.php" class="action-btn">
+                        <div class="icon" style="color:#f57c00;"><i class="fas fa-credit-card"></i></div>
+                        <div>
+                            <div class="text">Make Payment</div>
+                            <div class="sub-text">Pay school fees online</div>
+                        </div>
+                    </a>
+                    
+                    <!-- INTRODUCTORY LETTER -->
+                    <a href="verify_card.php?type=introductory_letter" class="action-btn">
+                        <div class="icon" style="color:#5d4037;"><i class="fas fa-file-alt"></i></div>
+                        <div>
+                            <div class="text">Introductory Letter</div>
+                            <div class="sub-text">For Teaching Practice (T.P)</div>
                         </div>
                     </a>
                     
                     <!-- POSTING LETTER -->
-<a href="verify_card.php?type=posting_letter" class="action-btn">
-    <div class="icon"><i class="fas fa-map-marker-alt"></i></div>
-    <div>
-        <div class="text">Posting Letter (T.P)</div>
-        <div class="sub-text">Enter Scratch Card to download</div>
-    </div>
-</a>
-<a href="verify_card.php?type=acceptance_letter" class="action-btn">
-    <i class="fas fa-file-signature"></i>
-    <div>
-        <div class="text">Acceptance Letter</div>
-        <div class="sub-text">Enter Scratch Card to download</div>
-    </div>
-</a>
-   <a href="view_result.php" class="btn btn-primary">
-    <i class="fas fa-chart-bar"></i> View My Results
-</a>                 
+                    <a href="verify_card.php?type=posting_letter" class="action-btn">
+                        <div class="icon" style="color:#455a64;"><i class="fas fa-map-marker-alt"></i></div>
+                        <div>
+                            <div class="text">Posting Letter (T.P)</div>
+                            <div class="sub-text">Enter Scratch Card to download</div>
+                        </div>
+                    </a>
+                    
+                    <!-- ACCEPTANCE LETTER -->
+                    <a href="verify_card.php?type=acceptance_letter" class="action-btn">
+                        <div class="icon" style="color:#00695c;"><i class="fas fa-file-signature"></i></div>
+                        <div>
+                            <div class="text">Acceptance Letter</div>
+                            <div class="sub-text">Enter Scratch Card to download</div>
+                        </div>
+                    </a>
+                    
                     <!-- LOGOUT -->
                     <a href="logout.php" class="action-btn full-width" style="border-color:#ffcdd2;">
                         <div class="icon" style="color:#c62828;"><i class="fas fa-sign-out-alt"></i></div>

@@ -1,17 +1,19 @@
 <?php
 session_start();
 include 'connect.php';
+include 'payment_gate.php';
 
+// Check if student is logged in
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'student') {
     header('Location: login.php');
     exit();
 }
 
-$student_id = $_SESSION['user_id'];
-$student = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM students WHERE id = $student_id"));
-
-if (!$student) {
-    die("Student not found!");
+// ============================================
+// PAYMENT GATE — Duba Acceptance Fee
+// ============================================
+if (!hasPaidItem($conn, $_SESSION['user_id'], 'ACC')) {
+    showPaymentRequired('Acceptance Fee', 'student_dashboard.php');
 }
 
 // ============================================

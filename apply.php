@@ -9,6 +9,43 @@ $error = '';
 $show_success = false;
 
 // ============================================
+// AUTO-GENERATE USERNAME: firstname@123
+// ============================================
+if (!function_exists('generateUsername')) {
+    function generateUsername($conn, $fullname) {
+        // Ɗauki sunan farko kawai
+        $name_parts = explode(' ', trim($fullname));
+        $first_name = strtolower(preg_replace('/[^a-zA-Z]/', '', $name_parts[0] ?? 'student'));
+        
+        if (empty($first_name)) $first_name = 'student';
+        
+        // ============================================
+        // TSARIN: firstname@123, firstname1@123, firstname2@123...
+        // ============================================
+        $suffix = '@123';
+        $username = $first_name . $suffix;
+        $counter = 1;
+        
+        // Duba duplicate
+        $check = mysqli_query($conn, "SELECT id FROM students WHERE username = '$username' LIMIT 1");
+        
+        while ($check && mysqli_num_rows($check) > 0) {
+            // Sanya lamba KAFIN @123
+            $username = $first_name . $counter . $suffix;
+            $counter++;
+            $check = mysqli_query($conn, "SELECT id FROM students WHERE username = '$username' LIMIT 1");
+            
+            if ($counter > 999) {
+                $username = $first_name . time() . $suffix;
+                break;
+            }
+        }
+        
+        return $username;
+    }
+}
+
+// ============================================
 // HANDLE FORM SUBMISSION
 // ============================================
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application'])) {
@@ -47,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
     }
     
     // ============================================
-    // DUBA PHONE (KADA YA MAIMAITA)
+    // CHECK PHONE (NO DUPLICATE)
     // ============================================
     if (!empty($phone)) {
         $check_phone = mysqli_query($conn, "SELECT id FROM students WHERE phone = '$phone'");
@@ -57,7 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
     }
     
     // ============================================
-    // TABBATAR DA SCRATCH CARD (APPLICATION)
+    // VERIFY SCRATCH CARD (APPLICATION)
     // ============================================
     $card = null;
     if (!empty($scratch_pin)) {
@@ -68,31 +105,35 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
         if (!$card_check) {
             $errors[] = '❌ Database error: ' . mysqli_error($conn);
         } elseif (mysqli_num_rows($card_check) == 0) {
-            $errors[] = '❌ Scratch Card ɗin ba daidai ba ne ko ba na Application ba.';
+            $errors[] = '❌ Invalid Scratch Card or not an Application card.';
         } else {
             $card = mysqli_fetch_assoc($card_check);
             
             if ($card['status'] == 'used') {
-                $errors[] = '❌ An riga an yi amfani da wannan Scratch Card ɗin.';
+                $errors[] = '❌ This Scratch Card has already been used.';
             }
             if ($card['is_active'] != 1) {
-                $errors[] = '❌ Scratch Card ɗin ba ya aiki.';
+                $errors[] = '❌ This Scratch Card is not active.';
             }
             if (!empty($card['expiry_date']) && $card['expiry_date'] < date('Y-m-d')) {
-                $errors[] = '❌ Scratch Card ɗin ya ƙare (expired).';
+                $errors[] = '❌ This Scratch Card has expired.';
             }
             if ($card['usage_count'] >= $card['usage_limit']) {
-                $errors[] = '❌ An riga an yi amfani da wannan Scratch Card ɗin har iyaka.';
+                $errors[] = '❌ This Scratch Card has reached its usage limit.';
             }
         }
     }
     
     if (empty($errors)) {
-        $username = strtolower(str_replace(' ', '_', $fullname)) . rand(10, 99);
+        // ============================================
+        // AUTO-GENERATE USERNAME
+        // ============================================
+        $username = generateUsername($conn, $fullname);
         $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+        $password_plain = mysqli_real_escape_string($conn, $password);
         
         // ============================================
-        // ƘAYYADE LEVEL DA SHEKARUN SHIGA BISA GA PROGRAMME
+        // DETERMINE LEVEL AND YEARS BASED ON PROGRAMME
         // ============================================
         $programme_upper = strtoupper(trim($programme));
         
@@ -115,14 +156,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
         }
         
         // ============================================
-        // INSERT STUDENT - BA A BA DA REG NO BA
+        // INSERT STUDENT
         // ============================================
         $insert = "INSERT INTO students (
-            username, password, fullname, phone, 
+            username, password, password_plain, fullname, phone, 
             programme, course, combination, dob, address, gender, 
             branch_code, status, level, entry_year, graduation_year, created_at
         ) VALUES (
-            '$username', '$hashed_password', '$fullname', '$phone',
+            '$username', '$hashed_password', '$password_plain', '$fullname', '$phone',
             '$programme', '$course', '$course', '$dob', '$address', '$gender', 
             '$branch', 'pending', '$student_level', '$entry_year', '$graduation_year', NOW()
         )";
@@ -131,7 +172,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
             $new_id = mysqli_insert_id($conn);
             
             // ============================================
-            // SABUNTA SCRATCH CARD
+            // UPDATE SCRATCH CARD
             // ============================================
             if ($card) {
                 mysqli_query($conn, "UPDATE scratch_cards 
@@ -143,7 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
             }
             
             // ============================================
-            // SAKA A APPLICATIONS TABLE
+            // INSERT INTO APPLICATIONS TABLE
             // ============================================
             $app_insert = "INSERT INTO applications (
                 student_id, fullname, phone, course_applied, programme, branch_code, created_at, status
@@ -153,7 +194,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
             mysqli_query($conn, $app_insert);
             
             // ============================================
-            // SAITA SESSION
+            // SET SESSION
             // ============================================
             $_SESSION['user_id'] = $new_id;
             $_SESSION['fullname'] = $fullname;
@@ -162,11 +203,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
             $_SESSION['branch_code'] = $branch;
             $_SESSION['course'] = $course;
             $_SESSION['level'] = $student_level;
+            $_SESSION['username'] = $username;
+            $_SESSION['password_plain'] = $password;
             
             $success = '✅ Application submitted successfully!';
             $show_success = true;
             
-            echo '<meta http-equiv="refresh" content="5;url=student_dashboard.php">';
+            // ============================================
+            // TURA ZUWA PAYMENT PAGE
+            // ============================================
+            echo '<meta http-equiv="refresh" content="5;url=application_payment.php?student_id=' . $new_id . '">';
         } else {
             $error = '❌ Error: ' . mysqli_error($conn);
         }
@@ -365,25 +411,80 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
         .success-box .highlight strong {
             color: #2e7d32;
         }
+        
+        .login-info-box {
+            background: #fff9c4;
+            border: 2px solid #f9a825;
+            border-radius: 10px;
+            padding: 18px 20px;
+            margin: 18px 0;
+            text-align: left;
+        }
+        .login-info-box h4 {
+            color: #0d2818;
+            margin-bottom: 12px;
+            font-size: 1rem;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .login-info-box .row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px dashed #f9a825;
+        }
+        .login-info-box .row:last-child { border-bottom: none; }
+        .login-info-box .label { 
+            color: #666; 
+            font-size: 0.85rem; 
+            font-weight: 600;
+        }
+        .login-info-box .value { 
+            color: #0d2818; 
+            font-weight: 800; 
+            font-family: 'Courier New', monospace; 
+            font-size: 1rem;
+            background: white;
+            padding: 4px 12px;
+            border-radius: 6px;
+            border: 1px solid #f9a825;
+            letter-spacing: 0.5px;
+        }
+        
+        .warning-msg {
+            background: #ffebee;
+            color: #c62828;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            margin: 12px 0;
+            border-left: 4px solid #c62828;
+            text-align: left;
+        }
+        
         .success-box .redirect-timer {
             color: #6a8f6a;
             font-size: 0.9rem;
-            margin-top: 10px;
+            margin-top: 15px;
         }
         .success-box .btn-dashboard {
             display: inline-block;
-            padding: 10px 30px;
-            background: #2e7d32;
+            padding: 12px 35px;
+            background: linear-gradient(135deg, #2e7d32, #1b5e20);
             color: white;
             text-decoration: none;
-            border-radius: 8px;
+            border-radius: 30px;
             font-weight: 700;
             margin-top: 15px;
             transition: all 0.3s ease;
+            font-size: 1rem;
         }
         .success-box .btn-dashboard:hover {
-            background: #1b5e20;
-            transform: translateY(-2px);
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(46,125,50,0.35);
         }
         
         .links { text-align: center; margin-top: 20px; padding-top: 20px; border-top: 2px solid #e8f5e9; }
@@ -462,28 +563,47 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
             <div class="success-box">
                 <div class="icon">✅</div>
                 <h2>Application Submitted Successfully!</h2>
-                <p>Your application has been received and is pending review.</p>
+                <p>Your application has been received. Please proceed to payment.</p>
                 
                 <div class="highlight">
-                    <p><strong>Name:</strong> <?php echo htmlspecialchars($_SESSION['fullname'] ?? $fullname); ?></p>
-                    <p><strong>Phone:</strong> <?php echo htmlspecialchars($_SESSION['phone'] ?? $phone); ?></p>
+                    <p><strong>Name:</strong> <?php echo htmlspecialchars($fullname); ?></p>
+                    <p><strong>Phone:</strong> <?php echo htmlspecialchars($phone); ?></p>
                     <p><strong>Programme:</strong> <?php echo htmlspecialchars($programme); ?></p>
                     <p><strong>Course:</strong> <?php echo htmlspecialchars($course); ?></p>
-                    <p><strong>Branch:</strong> <?php echo htmlspecialchars($_SESSION['branch_code'] ?? $branch); ?></p>
-                    <p><strong>Level:</strong> <?php echo htmlspecialchars($_SESSION['level'] ?? 'NCE I'); ?></p>
+                    <p><strong>Branch:</strong> <?php echo htmlspecialchars($branch); ?></p>
+                    <p><strong>Level:</strong> <?php echo htmlspecialchars($student_level ?? 'NCE I'); ?></p>
+                </div>
+                
+                <!-- ============================================ -->
+                <!-- LOGIN DETAILS -->
+                <!-- ============================================ -->
+                <div class="login-info-box">
+                    <h4>🔑 Your Login Details</h4>
+                    <div class="row">
+                        <span class="label">Username:</span>
+                        <span class="value"><?php echo htmlspecialchars($username); ?></span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Password:</span>
+                        <span class="value"><?php echo htmlspecialchars($password); ?></span>
+                    </div>
+                </div>
+                
+                <div class="warning-msg">
+                    ⚠️ <strong>Muhimmanci:</strong> Adana waɗannan bayanan a wuri mai aminci. Za ka buƙaci su don shiga Dashboard ɗinka.
                 </div>
                 
                 <p style="color:#6a8f6a; font-size:0.9rem;">
-                    ⏳ Please wait for admin review. You will be notified once your application is processed.
+                    ⏳ Proceed to payment to complete your application
                 </p>
                 
                 <div class="redirect-timer">
                     <i class="fas fa-spinner fa-spin"></i> 
-                    Redirecting to dashboard in <span id="countdown">5</span> seconds...
+                    Redirecting to payment page in <span id="countdown">5</span> seconds...
                 </div>
                 
-                <a href="student_dashboard.php" class="btn-dashboard">
-                    <i class="fas fa-tachometer-alt"></i> Go to Dashboard Now
+                <a href="application_payment.php?student_id=<?php echo $new_id; ?>" class="btn-dashboard">
+                    <i class="fas fa-credit-card"></i> Proceed to Payment Now
                 </a>
             </div>
             
@@ -494,7 +614,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
                 document.getElementById('countdown').textContent = seconds;
                 if (seconds <= 0) {
                     clearInterval(countdown);
-                    window.location.href = 'student_dashboard.php';
+                    window.location.href = 'application_payment.php?student_id=<?php echo $new_id; ?>';
                 }
             }, 1000);
             </script>
@@ -510,7 +630,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
                 <label>🎫 Scratch Card PIN <span style="color:#c62828;">*</span></label>
                 <input type="text" name="scratch_pin" placeholder="APL-1001-2001-3100" required maxlength="50" 
                        value="<?php echo isset($_POST['scratch_pin']) ? htmlspecialchars($_POST['scratch_pin']) : ''; ?>">
-                <div class="hint">Shigar da cikakken Scratch Card ɗinka (misali: APL-1001-2001-3100)</div>
+                <div class="hint">Enter your complete Scratch Card PIN (e.g., APL-1001-2001-3100)</div>
             </div>
             
             <div class="form-row">
@@ -523,7 +643,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
                     <label>Phone Number <span class="required">*</span></label>
                     <input type="tel" name="phone" placeholder="Enter your phone number" required 
                            value="<?php echo isset($_POST['phone']) ? htmlspecialchars($_POST['phone']) : ''; ?>">
-                    <div class="hint">This will be your login username</div>
+                    <div class="hint">We will use this to contact you</div>
                 </div>
             </div>
 
@@ -605,34 +725,34 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_application']))
     </footer>
 
     <script>
-   const courses = {
-    NCE: [
-        { value: 'ARB/ISS', text: 'ARB/ISS - Arabic / Islamic Studies' },
-        { value: 'ENG/ISS', text: 'ENG/ISS - English / Islamic Studies' },
-        { value: 'PED', text: 'PED - Primary Education' },
-        { value: 'ENG/HAU', text: 'ENG/HAU - English / Hausa' },
-        { value: 'CSC/ISC', text: 'CSC/ISC - Computer Science / Islamic Studies' },
-        { value: 'ENG/SOS', text: 'ENG/SOS - English / Social Studies' },
-        { value: 'CSC/BIO', text: 'CSC/BIO - Computer Science / Biology' },
-        { value: 'CSC/PHY', text: 'CSC/PHY - Computer Science / Physics' },
-        { value: 'ENG/ECO', text: 'ENG/ECO - English / Economics' }
-    ],
-    DEGREE: [
-        { value: 'PED', text: 'PED - Primary Education' }
-    ],
-    ENTREPRENEURSHIP: [
-        { value: 'TAILORING', text: 'Tailoring and Fashion Design' },
-        { value: 'AI_TECH', text: 'Computer / AI Technology' },
-        { value: 'SALOON', text: 'Saloon and Hairdressing' },
-        { value: 'HENNA', text: 'Henna Art and Decoration' },
-        { value: 'FISH_FARMING', text: 'Fish Farming (Kiwon Kifi)' },
-        { value: 'POULTRY', text: 'Poultry Farming (Kiwon Kaji)' },
-        { value: 'SOAP_MAKING', text: 'Soap Making (Hada Sabulu)' },
-        { value: 'CATERING', text: 'Catering and Confectionery' },
-        { value: 'BEAD_MAKING', text: 'Bead Making and Crafts' },
-        { value: 'GRAPHIC_DESIGN', text: 'Graphic Design' }
-    ]
-};
+    const courses = {
+        NCE: [
+            { value: 'ARB/ISS', text: 'ARB/ISS - Arabic / Islamic Studies' },
+            { value: 'ENG/ISS', text: 'ENG/ISS - English / Islamic Studies' },
+            { value: 'PED', text: 'PED - Primary Education' },
+            { value: 'ENG/HAU', text: 'ENG/HAU - English / Hausa' },
+            { value: 'CSC/ISC', text: 'CSC/ISC - Computer Science / Islamic Studies' },
+            { value: 'ENG/SOS', text: 'ENG/SOS - English / Social Studies' },
+            { value: 'CSC/BIO', text: 'CSC/BIO - Computer Science / Biology' },
+            { value: 'CSC/PHY', text: 'CSC/PHY - Computer Science / Physics' },
+            { value: 'ENG/ECO', text: 'ENG/ECO - English / Economics' }
+        ],
+        DEGREE: [
+            { value: 'PED', text: 'PED - Primary Education' }
+        ],
+        ENTREPRENEURSHIP: [
+            { value: 'TAILORING', text: 'Tailoring and Fashion Design' },
+            { value: 'AI_TECH', text: 'Computer / AI Technology' },
+            { value: 'SALOON', text: 'Saloon and Hairdressing' },
+            { value: 'HENNA', text: 'Henna Art and Decoration' },
+            { value: 'FISH_FARMING', text: 'Fish Farming' },
+            { value: 'POULTRY', text: 'Poultry Farming' },
+            { value: 'SOAP_MAKING', text: 'Soap Making' },
+            { value: 'CATERING', text: 'Catering and Confectionery' },
+            { value: 'BEAD_MAKING', text: 'Bead Making and Crafts' },
+            { value: 'GRAPHIC_DESIGN', text: 'Graphic Design' }
+        ]
+    };
 
     function updateCourses() {
         var programme = document.getElementById('programme');

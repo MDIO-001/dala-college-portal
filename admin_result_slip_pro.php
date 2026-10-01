@@ -652,7 +652,7 @@ $total_carryover = count($carryovers);
             <div class="pro-bottom">
                 <div class="qr-box">
                     <?php
-$qr_base_url = 'https://dalacoe.edu.ng/';
+$qr_base_url = 'https://dalacoe.edu.ng/index.php/';
 $verify_url = $qr_base_url . 'verify.php?reg_no=' . urlencode($student['reg_no'] ?? $student['student_id']);
 ?>
 <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=<?php echo urlencode($verify_url); ?>" alt="QR">

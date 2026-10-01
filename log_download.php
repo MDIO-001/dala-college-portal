@@ -43,20 +43,21 @@ if ($student_id <= 0 || empty($document_type)) {
 }
 
 // ============================================
-// VALID DOCUMENT TYPES
+// VALID DOCUMENT TYPES (GYARAN - an ƙara tp_posting_letter)
 // ============================================
 $valid_documents = [
     'admission_letter', 'acceptance_letter', 'student_id_card',
     'exam_card', 'result_slip', 'result_slip_pro', 'transcript',
     'statement_of_result', 'final_result', 'introductory_letter',
-    'posting_letter', 'tp_result', 'course_registration',
-    'application_form', 'payment_receipt'
+    'posting_letter', 'tp_posting_letter', 'tp_result', 
+    'course_registration', 'application_form', 'payment_receipt',
+    'semester_result', 'id_card'
 ];
 
 if (!in_array($document_type, $valid_documents)) {
     echo json_encode([
         'success' => false, 
-        'message' => 'Invalid document type'
+        'message' => 'Invalid document type: ' . $document_type
     ]);
     exit();
 }
@@ -94,11 +95,10 @@ if (!$check_student || mysqli_num_rows($check_student) == 0) {
 }
 
 // ============================================
-// CHECK IF TABLE EXISTS
+// CHECK IF download_logs TABLE EXISTS (auto-create)
 // ============================================
 $check_table = mysqli_query($conn, "SHOW TABLES LIKE 'download_logs'");
 if (!$check_table || mysqli_num_rows($check_table) == 0) {
-    // Ƙirƙira table idan babu
     mysqli_query($conn, "CREATE TABLE IF NOT EXISTS download_logs (
         id INT AUTO_INCREMENT PRIMARY KEY,
         student_id INT NOT NULL,
@@ -114,6 +114,25 @@ if (!$check_table || mysqli_num_rows($check_table) == 0) {
 }
 
 // ============================================
+// CHECK IF security_logs TABLE EXISTS (auto-create)
+// ============================================
+$check_security_table = mysqli_query($conn, "SHOW TABLES LIKE 'security_logs'");
+if (!$check_security_table || mysqli_num_rows($check_security_table) == 0) {
+    mysqli_query($conn, "CREATE TABLE IF NOT EXISTS security_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NULL,
+        event_type VARCHAR(50) NOT NULL,
+        details TEXT NULL,
+        ip_address VARCHAR(45) NULL,
+        user_agent VARCHAR(255) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_user (user_id),
+        INDEX idx_event (event_type),
+        INDEX idx_date (created_at)
+    )");
+}
+
+// ============================================
 // INSERT LOG
 // ============================================
 $sql = "INSERT INTO download_logs 
@@ -124,7 +143,7 @@ $sql = "INSERT INTO download_logs
 if (mysqli_query($conn, $sql)) {
     $log_id = mysqli_insert_id($conn);
     
-    // Log security event
+    // Log security event (idan table ɗin yana nan)
     $security_details = "User ID: $user_id | Student ID: $student_id | Document: $document_type | Action: $action_type";
     $security_details_esc = mysqli_real_escape_string($conn, $security_details);
     
